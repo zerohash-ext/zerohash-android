@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- zerohash brand palette -->
+    <color name="zh_green">#FFCCFFD0</color>
+    <color name="zh_evergreen">#FF00381D</color>
+    <color name="off_black">#FF1C1B1C</color>
+    <color name="gray_medium">#FFCCCCCC</color>
+    <color name="gray_light">#FFEBEBE9</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>

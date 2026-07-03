@@ -1,0 +1,31 @@
+# JitPack build config. Customers consume the SDK via:
+#
+#   repositories { maven { url = uri("https://jitpack.io") } }
+#   implementation("com.github.zerohash-ext:zerohash-android:<tag>")
+#
+# JitPack builds on first request per (repo, tag) pair from the public
+# mirror (zerohash-ext/zerohash-android). The private repo
+# (seedcx/zerohash-android) pushes tags to the public mirror via the
+# sync-to-zerohash-ext workflow; JitPack then resolves tags from the public
+# side. Builds run on JitPack's infrastructure, not ours.
+#
+# JDK pin: Android Gradle Plugin 8.2.x + Kotlin 1.9.20 require JDK 17.
+# Without this pin JitPack defaults to JDK 8 and the build fails at
+# `compileOptions { sourceCompatibility = JavaVersion.VERSION_17 }`.
+jdk:
+  - openjdk17
+
+# Targeted `:zerohashsdk:publishToMavenLocal` so JitPack picks up the
+# library AAR + its POM without also trying to assemble the demo
+# `:app` module (which is an Android application, not publishable as
+# a library artifact, and would force JitPack to provision an Android
+# SDK + emulator targets).
+#
+# $VERSION is set by JitPack to the resolved tag name (e.g. "1.0.0").
+# It's forwarded as -PSDK_VERSION so zerohashsdk/build.gradle.kts can
+# read it via findProperty("SDK_VERSION") for the maven-publish
+# `version =` field — keeps a single source of truth (the git tag)
+# instead of hard-coding the version in code and bumping it per
+# release.
+install:
+  - ./gradlew :zerohashsdk:publishToMavenLocal -PSDK_VERSION=$VERSION

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark theme colors -->
+    <color name="dark_background">#111113</color>
+
+    <!-- Loading dot colors (yellow gradient) -->
+    <color name="dot_color_1">#FCFC99</color>
+    <color name="dot_color_2">#F2F07D</color>
+    <color name="dot_color_3">#F0D53E</color>
+
+    <!-- Standard colors -->
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+</resources>

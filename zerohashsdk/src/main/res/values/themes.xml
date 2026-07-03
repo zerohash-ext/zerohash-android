@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base theme for Zerohash SDK activities -->
+    <style name="Theme.ZerohashSDK" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowFullscreen">false</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="colorPrimary">@color/dark_background</item>
+        <item name="colorPrimaryDark">@color/dark_background</item>
+        <item name="colorAccent">@color/dot_color_3</item>
+    </style>
+</resources>

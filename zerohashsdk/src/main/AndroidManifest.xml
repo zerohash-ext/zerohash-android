@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Required permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application>
+        <!--
+            Main WebView activity. Holds the JWT and the WebView session.
+            NEVER exported. Reached only via in-process startActivity from the
+            SDK, or via FLAG_ACTIVITY_CLEAR_TOP|FLAG_ACTIVITY_SINGLE_TOP from
+            OAuthCallbackActivity (same task, same process).
+        -->
+        <activity
+            android:name="com.zerohash.sdk.ui.WebViewActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:launchMode="singleTop" />
+
+        <!--
+            Scraping login WebView (auth.login). SDK-owned, never exported —
+            launched only via in-process startActivity from Coinbase.
+        -->
+        <activity
+            android:name="com.zerohash.sdk.automation.CoinbaseLoginActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false" />
+
+        <!--
+            Cross-process OAuth callback receiver.
+
+            This is the ONLY exported activity in the SDK. It receives the
+            connectsdk-oauth://callback redirect dispatched by the system after
+            Chrome Custom Tabs navigates to the custom scheme, and forwards the
+            URI to the (non-exported) WebViewActivity in the same task.
+
+            NOTE on the scheme: `connectsdk-oauth://callback` is dictated by the
+            backend (connection-service) configured redirect URI shared with the
+            web SDK / connect-ios / connect-android. Fund embeds the shared
+            integrations-flow ("auth as a feature") deposit-via-external-source
+            flow, which uses this same OAuth path. Keep this scheme in sync with
+            whatever redirect URI connection-service is configured to send for
+            the zerohash Fund SDK — changing it here without a matching backend
+            change breaks the OAuth round-trip.
+
+            The activity holds no SDK state, no JWT, no callbacks — only the
+            forwarding logic. Translucent theme so the user never sees a flash;
+            excludeFromRecents keeps it out of the task switcher.
+        -->
+        <activity
+            android:name="com.zerohash.sdk.ui.OAuthCallbackActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="connectsdk-oauth"
+                    android:host="callback" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Zerohash SDK</string>
+    <string name="loading">Loading…</string>
+    <string name="close">Close</string>
+    <string name="retry">Retry</string>
+    <string name="error_network">Network error. Please check your connection.</string>
+    <string name="error_authentication">Authentication failed. Please try again.</string>
+    <string name="error_unknown">An error occurred. Please try again.</string>
+</resources>
