@@ -92,7 +92,7 @@ function parseConnection(folded, field, op, displayCurrency) {
     if (!asset || typeof asset !== "object") continue; // drops TiersCurrency/malformed
     const amount = (node.totalBalanceCrypto || {}).amount || "0";
     const notional = (node.totalBalanceFiat || {}).amount || "0";
-    if (amount === "0" && parseFloat(notional) === 0) continue;
+    if (parseFloat(amount) === 0 && parseFloat(notional) === 0) continue;
     let staked = null;
     if (field === "cryptoAssets") {
       const s = ((node.asset.staking || {}).summary || {}).totalStakedPercent;
