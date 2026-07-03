@@ -112,3 +112,15 @@ by default (see `app/build.gradle.kts`, `useJitpack`).
 See **`DO_NOT_COMMIT.md`** — the `app/src/debug/` Netskope CA overlay, the
 JitPack switch, and the on-screen SDK-source banner are local test infra carried
 over from connect-android and must not land in a clean release commit.
+
+## Atlassian (Jira / Confluence) MCP
+
+When connected to the Atlassian MCP server, use these fixed values to skip
+discovery calls, save tokens, and cap result sizes:
+
+- **MUST** use cloudId = `a736fade-c465-476e-bba9-42baf3dcc689`
+  (site `seedcx.atlassian.net`) — do NOT call `getAccessibleAtlassianResources`.
+- **MUST** use Jira project key = `AUTH`.
+- **MUST** use Confluence spaceId = `3646783586` (the "Engineering" space).
+- **MUST** use `maxResults: 10` / `limit: 10` for ALL Jira JQL and Confluence
+  CQL search operations.
