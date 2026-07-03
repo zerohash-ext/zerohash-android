@@ -246,7 +246,10 @@ internal class WebViewMessageHandler(
             put("success", true)
             connectionId?.let { put("connectionId", it) }
         }
-        sendMessageToWeb("oauth-result", oauthMessage)
+        // Web contract: the OAuth flow's `waitForConnectionId` listens for
+        // `oauth-success` / `oauth-error` (matches connect-ios). The host relays
+        // this into the iframe, where `data.connectionId` resolves the flow.
+        sendMessageToWeb("oauth-success", oauthMessage)
     }
 
     fun sendOAuthError(error: String) {
@@ -254,7 +257,7 @@ internal class WebViewMessageHandler(
             put("success", false)
             put("error", error)
         }
-        sendMessageToWeb("oauth-result", oauthMessage)
+        sendMessageToWeb("oauth-error", oauthMessage)
     }
 
     /**
