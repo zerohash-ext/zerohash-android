@@ -7,7 +7,7 @@ import org.json.JSONObject
  *
  * Port of iOS `AuthStatusResult` (Platforms/AuthFlow.swift).
  */
-data class AuthStatusResult(val loggedIn: Boolean)
+internal data class AuthStatusResult(val loggedIn: Boolean)
 
 /**
  * Result of a Coinbase `auth.login` flow. Port of iOS `AuthLoginResult`.
@@ -16,14 +16,14 @@ data class AuthStatusResult(val loggedIn: Boolean)
  * (the wire values the web's `auth.login` response expects) — all four are
  * produced by [CoinbaseLoginActivity], matching iOS.
  */
-data class AuthLoginResult(val loggedIn: Boolean, val outcome: String)
+internal data class AuthLoginResult(val loggedIn: Boolean, val outcome: String)
 
 /**
  * One asset row from a Coinbase `getBalance` scrape. Port of iOS `AssetBalance`
  * (Platforms/BalanceFlow.swift) — field-for-field the shape `get-balance.js`
  * emits.
  */
-data class AssetBalance(
+internal data class AssetBalance(
     val key: String,
     val label: String,
     val amount: String,
@@ -43,7 +43,7 @@ data class AssetBalance(
  * - [Answer]: short-circuit with this value WITHOUT running the script (e.g. a
  *   redirect to the login host means "logged out" — no DOM probe needed).
  */
-sealed interface SettleDecision {
+internal sealed interface SettleDecision {
     object WaitMore : SettleDecision
     object Evaluate : SettleDecision
     data class Answer(val value: JSONObject?) : SettleDecision
@@ -54,4 +54,4 @@ sealed interface SettleDecision {
  * Port of iOS `PlatformError` / `JSException` — [message] carries the JS-thrown
  * text (e.g. `CHALLENGE_PRESENT`, `not logged in`) so callers can branch on it.
  */
-class PlatformException(message: String) : Exception(message)
+internal class PlatformException(message: String) : Exception(message)

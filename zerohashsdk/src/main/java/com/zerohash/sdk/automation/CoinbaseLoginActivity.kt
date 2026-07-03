@@ -42,7 +42,7 @@ import kotlinx.coroutines.CompletableDeferred
  *
  * Never exported — launched only in-process from [present].
  */
-class CoinbaseLoginActivity : AppCompatActivity() {
+internal class CoinbaseLoginActivity : AppCompatActivity() {
 
     private var webView: WebView? = null
     private val authPopup by lazy { AuthPopupWindow(this) }

@@ -1,9 +1,12 @@
-// Single-shot Coinbase Receive-flow automation. Evaluated by the offscreen
-// runner after settling on www.coinbase.com. Reads params from the bound
-// argument `params` = { asset, network, amount } (marshaled into a JS variable
-// by WebKit's callAsyncJavaScript — never interpolated into the source, CWE-94).
-// Resolves with a DepositAddressResult-shaped object, or rejects with a tagged
-// Error whose message the Swift side maps to AutomationWebViewError.platformThrew.
+// Single-shot Coinbase Receive-flow automation. Evaluated by the visible runner
+// after settling on www.coinbase.com. Reads params from the bound argument
+// `params` = { asset, network, amount }. On Android `params` IS interpolated into
+// the evaluated source as a JS variable by the native runner (Android has no
+// WebKit callAsyncJavaScript equivalent); the splice is safe only because the
+// value is org.json-escaped before injection (JSONObject.toString()) — see
+// buildPromiseWrapper / AUTH-3441 (CWE-94). Resolves with a
+// DepositAddressResult-shaped object, or rejects with a tagged Error whose
+// message the native side maps to a platform-threw error.
 (function () {
   var P = (typeof params !== "undefined" && params) || {};
   var ASSET = String(P.asset || "").trim();

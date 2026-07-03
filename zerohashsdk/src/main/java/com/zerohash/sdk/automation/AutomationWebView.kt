@@ -20,12 +20,35 @@ import java.util.concurrent.ConcurrentHashMap
  */
 
 /**
+ * Pinned WebView User-Agent for the Coinbase-scraping WebViews (AUTH-3445).
+ *
+ * The stock Android WebView UA advertises itself as an embedded WebView — it
+ * carries the `; wv` token and `Version/4.0`, plus (on emulators/many devices) an
+ * unusual model string — which Coinbase's anti-automation can flag, degrading
+ * scraping reliability. We pin a real, current Chrome-on-Android UA so the
+ * scraping WebView presents like a mainstream mobile browser instead.
+ *
+ * Tracks the current Chrome-for-Android stable major (150 as of this change, per
+ * Google's version-history API). Chrome's UA reduction freezes the version to
+ * `<major>.0.0.0`, so `Chrome/150.0.0.0` matches a genuine Chrome-Android string.
+ * This intentionally advertises current-stable Chrome, which may run ahead of the
+ * WebView actually rendering the page (e.g. an emulator's bundled 145). Bump the
+ * Chrome major when stable moves materially; keep the `Mobile Safari/537.36`
+ * suffix intact.
+ */
+internal const val AUTOMATION_USER_AGENT =
+    "Mozilla/5.0 (Linux; Android 16; Pixel 9) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Chrome/150.0.0.0 Mobile Safari/537.36"
+
+/**
  * Apply the standard automation WebView settings: JS/DOM storage on for the SPA,
  * mixed content blocked, and local file/content access denied as defense-in-depth
  * (those default to `true` below API 30, and minSdk is 21 — these WebViews only
  * ever load Coinbase HTTPS subdomains, so local-file access is never needed). Also
  * opts the process-wide [CookieManager] into first- and third-party cookies, which
- * is what ties login → status → balance together across the runners.
+ * is what ties login → status → balance together across the runners. Pins a real
+ * Chrome-on-Android [AUTOMATION_USER_AGENT] so Coinbase doesn't flag the default
+ * embedded-WebView UA (AUTH-3445).
  */
 @SuppressLint("SetJavaScriptEnabled")
 internal fun WebView.applyAutomationDefaults() {
@@ -38,6 +61,7 @@ internal fun WebView.applyAutomationDefaults() {
         allowContentAccess = false
         allowFileAccessFromFileURLs = false
         allowUniversalAccessFromFileURLs = false
+        userAgentString = AUTOMATION_USER_AGENT
     }
     CookieManager.getInstance().setAcceptCookie(true)
     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -52,6 +76,17 @@ internal fun WebView.applyAutomationDefaults() {
  * settles. [prelude] (trusted setup that installs window globals) is injected
  * first, then [argDecl] (e.g. `var params = …;`) binds an in-scope local the
  * script reads; all three share the wrapper's function scope.
+ *
+ * SECURITY INVARIANT (CWE-94): [argDecl] and [prelude] are spliced VERBATIM into
+ * the evaluated source — unlike iOS `WKWebView.callAsyncJavaScript`, which
+ * marshals arguments out-of-band, Android has no such API and interpolates. So
+ * the value in [argDecl] MUST be produced by `org.json` serialization
+ * (`JSONObject`/`JSONArray.toString()`), whose escaping is what makes splicing
+ * web-supplied data (getDepositAddress / withdraw payloads) safe. Callers get
+ * this for free because [AutomationBridge] re-serializes every inbound payload
+ * via `JSONObject(...).toString()` before it reaches a runner; do NOT pass a
+ * hand-built or caller-formatted string here. [prelude] must stay trusted,
+ * compile-time-constant script (never web-supplied).
  *
  * The trailing `;` (and whitespace) of [rawExpr] is stripped so an IIFE expression
  * sits cleanly inside `Promise.resolve((…))` (an unstripped `;` inside the parens

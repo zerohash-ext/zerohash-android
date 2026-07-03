@@ -78,9 +78,12 @@ internal class PromiseWebViewRunner(private val activity: Activity) {
      *                       reads (e.g. coinbase-balance-queries.js sets
      *                       `window.__zhCoinbaseQueries`).
      * @param paramsJson     when non-null, a JSON literal bound as the in-scope
-     *                       `params` variable the main script reads. MUST be
-     *                       trusted, compile-time-constant data (it's spliced into
-     *                       the source); the balance flow passes a fixed ops list.
+     *                       `params` variable the main script reads. It is spliced
+     *                       verbatim into the evaluated source, so it MUST be the
+     *                       output of `org.json` serialization
+     *                       (`JSONObject`/`JSONArray.toString()`) — that escaping is
+     *                       the CWE-94 defense (see [buildPromiseWrapper]). The
+     *                       balance flow passes a fixed org.json-encoded ops list.
      * @param settle         consulted on each page finish to decide what to do
      *                       with the current URL.
      * @return the decoded result object, or the [SettleDecision.Answer] payload.

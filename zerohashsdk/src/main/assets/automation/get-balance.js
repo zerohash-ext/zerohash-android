@@ -147,7 +147,6 @@ async function replay(spec) {
   const ext = encodeURIComponent(JSON.stringify({ persistedQuery: { version: 1, sha256Hash: spec.sha256Hash } }));
   const vars = encodeURIComponent(JSON.stringify(spec.variables || {}));
   const getUrl = base + "&variables=" + vars + "&extensions=" + ext;
-  console.log("[zh-balance] GET", spec.operationName, getUrl);
   // Coinbase's GraphQL enforces Apollo CSRF prevention: a "simple" CORS request
   // (only `accept`) is rejected with HTTP 400 "potential Cross-Site Request
   // Forgery". Sending a non-empty `x-apollo-operation-name` (and
@@ -160,9 +159,7 @@ async function replay(spec) {
   };
   let resp = await fetchWithTimeout(getUrl, { method: "GET", credentials: "include", headers: headers }, REPLAY_TIMEOUT_MS, spec.operationName);
   let text = await resp.text();
-  console.log("[zh-balance] GET resp", spec.operationName, "status=", resp.status,
-              "ct=", resp.headers.get("content-type"), "len=", text.length);
-  if (isChallenge(resp.status, resp.headers, text)) { console.warn("[zh-balance] challenge detected on GET"); throw new Error("CHALLENGE_PRESENT"); }
+  if (isChallenge(resp.status, resp.headers, text)) { throw new Error("CHALLENGE_PRESENT"); }
   let folded = decodeBody(text, resp.headers.get("content-type"));
   const notFound = folded && folded.errors &&
     folded.errors.some(e => (e.message || "").indexOf("PersistedQueryNotFound") !== -1 ||
@@ -206,7 +203,6 @@ async function run(params, queries) {
   const ops = (params && Array.isArray(params.ops) && params.ops.length)
     ? params.ops
     : (params && params.op ? [params.op] : []);
-  console.log("[zh-balance] run start ops=", ops.join(","));
   if (ops.length === 0) throw new Error("BALANCES_INDETERMINATE: no ops — could not load a complete response");
   const balances = [];
   for (const op of ops) {
@@ -217,8 +213,6 @@ async function run(params, queries) {
     // row so crypto and cash are labeled consistently (e.g. all USD).
     const displayCurrency = (spec.variables && (spec.variables.nativeCurrency || spec.variables.currencyString)) || null;
     const parsed = parseConnection(replayed.folded, spec.field, op, displayCurrency);
-    console.log("[zh-balance] parsed", op, "status=", parsed.status, "count=",
-                parsed.balances ? parsed.balances.length : -1);
     if (parsed.status !== "complete") {
       throw new Error("BALANCES_INDETERMINATE: " + op + " — could not load a complete response");
     }
@@ -235,10 +229,12 @@ if (typeof module !== "undefined" && module.exports) {
   return null;
 }
 
-// WebView entry point: the IIFE evaluates to this Promise, which the Swift
-// runner awaits. `params` is a bound argument (marshaled into a JS variable by
-// WebKit's callAsyncJavaScript — never interpolated into the source, CWE-94);
-// the query catalogue is trusted, compile-time-constant code injected ahead of
-// this file, so it rides on the window global.
+// WebView entry point: the IIFE evaluates to this Promise, which the native
+// runner awaits. `params` IS interpolated into the evaluated source as a JS
+// variable by the native runner (Android has no WebKit callAsyncJavaScript
+// equivalent); the splice is safe only because the value is org.json-escaped
+// before injection (JSONObject.toString()) — see buildPromiseWrapper /
+// AUTH-3441 (CWE-94). The query catalogue is trusted, compile-time-constant code
+// injected ahead of this file, so it rides on the window global.
 return run((typeof params !== "undefined" && params) || {}, window.__zhCoinbaseQueries || {});
 })();

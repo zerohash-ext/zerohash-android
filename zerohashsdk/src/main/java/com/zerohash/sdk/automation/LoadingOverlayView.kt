@@ -52,17 +52,26 @@ internal class LoadingOverlayView(
             // Opaque + swallow touches so the user can't poke the page underneath.
             isClickable = true
             isFocusable = true
+            // The dots animate translationY = -20f (see dotAnimation); clipChildren
+            // defaults to true, which would clip the lifted portion and render cut
+            // dots (AUTH-3440). Disable clipping down the whole chain to the dots.
+            clipChildren = false
+            clipToPadding = false
         }
 
         // Stage (dots + text) fills the space above the footer and centers content.
         val stage = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
+            clipChildren = false
+            clipToPadding = false
         }
 
         val dotsContainer = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
+            clipChildren = false
+            clipToPadding = false
         }
         listOf(options.brand.left, options.brand.middle, options.brand.right).forEach { c ->
             val dot = View(context).apply {
