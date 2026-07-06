@@ -109,9 +109,6 @@ internal class AutomationBridge(
      */
     private val inFlight = HashMap<String, Deferred<OpResult>>()
 
-    private fun isCoalescable(operation: String): Boolean =
-        operation == "auth.status" || operation == "getBalance"
-
     private suspend fun dispatch(platformId: String, operation: String, request: JSONObject): OpResult {
         if (!isCoalescable(operation)) return runOperation(platformId, operation, request)
         val key = "$platformId/$operation"
@@ -270,18 +267,6 @@ internal class AutomationBridge(
         return OpResult(result, sessionId)
     }
 
-    /** Mirrors iOS `WithdrawState.endsSession`: submitted is terminal; rejected is
-     *  terminal UNLESS it's an OTP rejection (the web lets the user retry); the
-     *  awaiting/processing pauses are non-terminal. An UNRECOGNIZED state ends the
-     *  session — iOS rejects an undecodable discriminant outright, so we dismiss
-     *  rather than strand a live session waiting on the 300s ceiling. */
-    private fun endsSession(state: JSONObject): Boolean = when (state.optString("state")) {
-        "submitted" -> true
-        "rejected" -> state.optString("reason") != "otp_rejected"
-        "awaiting-input", "awaiting-user-action", "processing" -> false
-        else -> true
-    }
-
     /** iOS handOff: the session is now parked waiting on the user, so suspend its
      *  wall-clock ceiling (the wait is unbounded). Reveal the platform page only
      *  when the user must act there (id-verification); otherwise step aside so the
@@ -305,24 +290,6 @@ internal class AutomationBridge(
     private fun resumeScraping(ws: WithdrawSession) {
         ws.session.restartTimeout()
         if (ws.steppedAside) ws.session.resume() else ws.session.revealOverlay(false)
-    }
-
-    private fun balancesToJson(balances: List<AssetBalance>): JSONArray {
-        val arr = JSONArray()
-        for (b in balances) {
-            arr.put(
-                JSONObject()
-                    .put("key", b.key)
-                    .put("label", b.label)
-                    .put("amount", b.amount)
-                    .put("notional", b.notional)
-                    .put("currency", b.currency ?: JSONObject.NULL)
-                    .put("totalStakedPercent", b.totalStakedPercent ?: JSONObject.NULL)
-                    .put("precision", b.precision ?: JSONObject.NULL)
-                    .put("extractedAt", b.extractedAt)
-            )
-        }
-        return arr
     }
 
     private fun sendResponse(
@@ -360,11 +327,6 @@ internal class AutomationBridge(
         }
     }
 
-    /** Mirrors iOS exactly: BALANCES_INDETERMINATE is matched as a prefix, and
-     *  CHALLENGE_UNSOLVED as the whole message — nothing else is retryable. */
-    private fun isRetryable(msg: String): Boolean =
-        msg.startsWith("BALANCES_INDETERMINATE") || msg == "CHALLENGE_UNSOLVED"
-
     fun dispose() {
         disposed = true
         sessions.values.forEach { it.session.dismiss() }
@@ -379,4 +341,52 @@ internal class AutomationBridge(
         // Platform-prefixed SDK version, mirroring iOS "ios-<version>".
         private val VERSION = "android-${BuildConfig.SDK_VERSION}"
     }
+}
+
+// ── Pure, stateless bridge decision logic ───────────────────────────────────
+//
+// These are file-level `internal` helpers rather than private members of
+// [AutomationBridge] so they can be unit-tested on the JVM without constructing a
+// bridge (which needs an Activity/WebView + the Main dispatcher). They hold no
+// bridge state; the class calls them unqualified. See [AutomationBridgeLogicTest].
+
+/** Mirrors iOS `WithdrawState.endsSession`: submitted is terminal; rejected is
+ *  terminal UNLESS it's an OTP rejection (the web lets the user retry); the
+ *  awaiting/processing pauses are non-terminal. An UNRECOGNIZED state ends the
+ *  session — iOS rejects an undecodable discriminant outright, so we dismiss
+ *  rather than strand a live session waiting on the 300s ceiling. */
+internal fun endsSession(state: JSONObject): Boolean = when (state.optString("state")) {
+    "submitted" -> true
+    "rejected" -> state.optString("reason") != "otp_rejected"
+    "awaiting-input", "awaiting-user-action", "processing" -> false
+    else -> true
+}
+
+/** Mirrors iOS exactly: BALANCES_INDETERMINATE is matched as a prefix, and
+ *  CHALLENGE_UNSOLVED as the whole message — nothing else is retryable. */
+internal fun isRetryable(msg: String): Boolean =
+    msg.startsWith("BALANCES_INDETERMINATE") || msg == "CHALLENGE_UNSOLVED"
+
+/** Only the idempotent reads coalesce; every mutating/one-shot op runs on its
+ *  own. Mirrors iOS `AutomationWebViewMessageRouter.dispatchCoalesced`. */
+internal fun isCoalescable(operation: String): Boolean =
+    operation == "auth.status" || operation == "getBalance"
+
+/** Serialize balances to the wire `JSONArray`, nulls → JSON null (iOS parity). */
+internal fun balancesToJson(balances: List<AssetBalance>): JSONArray {
+    val arr = JSONArray()
+    for (b in balances) {
+        arr.put(
+            JSONObject()
+                .put("key", b.key)
+                .put("label", b.label)
+                .put("amount", b.amount)
+                .put("notional", b.notional)
+                .put("currency", b.currency ?: JSONObject.NULL)
+                .put("totalStakedPercent", b.totalStakedPercent ?: JSONObject.NULL)
+                .put("precision", b.precision ?: JSONObject.NULL)
+                .put("extractedAt", b.extractedAt)
+        )
+    }
+    return arr
 }

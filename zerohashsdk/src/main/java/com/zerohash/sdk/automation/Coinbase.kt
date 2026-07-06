@@ -2,6 +2,7 @@ package com.zerohash.sdk.automation
 
 import android.app.Activity
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -140,7 +141,8 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
         return balances
     }
 
-    private fun parseBalances(obj: JSONObject): List<AssetBalance> {
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal fun parseBalances(obj: JSONObject): List<AssetBalance> {
         val rows = obj.optJSONArray("balances")
             ?: throw PlatformException("invalid balance JS return: no 'balances' array")
         return (0 until rows.length()).map { i ->
@@ -211,7 +213,8 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
      * the web reads `address`+`destinationTag`; `amountSubmitted` is passed through
      * verbatim. Add the enum check if a consumer starts relying on it.
      */
-    private fun mapDepositResult(raw: JSONObject, payloadJson: String): JSONObject {
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal fun mapDepositResult(raw: JSONObject, payloadJson: String): JSONObject {
         val address = raw.optString("address")
         if (address.isEmpty()) throw PlatformException("invalid deposit result: missing address")
         val payload = runCatching { JSONObject(payloadJson) }.getOrNull()

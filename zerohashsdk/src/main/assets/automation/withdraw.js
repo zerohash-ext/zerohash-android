@@ -887,13 +887,146 @@
     return { kind: "processing" };
   }
 
-  // No network interceptor (deferred) — read the outcome from the success screen.
+  // ── Commit-send network interceptor (AUTH-3444) ──
+  //
+  // Android's shouldInterceptRequest exposes the request but not the response
+  // body, so — like the browser extension — we capture the authoritative send
+  // outcome in-page by patching fetch + XHR and reading Coinbase's
+  // `useCommitSendMutation` GraphQL response. The captured body lives on `window`
+  // (survives start→continue on the un-navigated modal page); readCommittedSend()
+  // pulls referenceId / sendUuid from it, with the success headline as fallback.
+
+  var COMMIT_SEND_OP = "useCommitSendMutation";
+
+  // Strict host check — endsWith(".coinbase.com") so `notcoinbase.com.evil.tld`
+  // can't slip through (mirrors the extension's isCoinbaseHost).
+  function isCoinbaseHost(h) {
+    if (!h) return false;
+    if (h === "coinbase.com") return true;
+    var suffix = ".coinbase.com";
+    return h.length > suffix.length && h.lastIndexOf(suffix) === h.length - suffix.length;
+  }
+
+  function isGraphQLEndpoint(url) {
+    try {
+      var u = new URL(url, window.location.origin);
+      return isCoinbaseHost(u.hostname) && u.pathname.indexOf("/graphql") !== -1;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function operationNameFor(url, body) {
+    try {
+      var u = new URL(url, window.location.origin);
+      var q = u.searchParams.get("operationName");
+      if (q) return q;
+    } catch (e) {}
+    if (body) {
+      try { return JSON.parse(body).operationName || null; } catch (e) {}
+    }
+    return null;
+  }
+
+  // Store the commit-send GraphQL body when we see it — matched by op name, or by
+  // the response carrying `data.commitSend` (robust to persisted-query GETs where
+  // the op name isn't on the request). Never throws.
+  function maybeCaptureCommit(url, bodyStr, responseText) {
+    if (!isGraphQLEndpoint(url)) return;
+    try {
+      var body = JSON.parse(responseText);
+      var op = operationNameFor(url, bodyStr);
+      var hasCommit = !!(body && body.data && body.data.commitSend);
+      if (op === COMMIT_SEND_OP || hasCommit) window.__zhCommitSend = body;
+    } catch (e) {}
+  }
+
+  // Patch fetch + XHR once (guarded on window so re-injection is a no-op).
+  function installCommitInterceptor() {
+    if (window.__zhCommitInterceptorInstalled) return;
+    window.__zhCommitInterceptorInstalled = true;
+
+    var origFetch = window.fetch;
+    if (typeof origFetch === "function") {
+      window.fetch = function (input, init) {
+        var url = typeof input === "string" ? input : (input && input.url) || "";
+        var bodyStr = init && typeof init.body === "string" ? init.body : null;
+        var p = origFetch.apply(this, arguments);
+        try {
+          return p.then(function (resp) {
+            try {
+              if (isGraphQLEndpoint(url)) {
+                resp.clone().text().then(function (text) {
+                  maybeCaptureCommit(url, bodyStr, text);
+                }).catch(function () {});
+              }
+            } catch (e) {}
+            return resp;
+          });
+        } catch (e) {
+          return p;
+        }
+      };
+    }
+
+    var XHR = XMLHttpRequest.prototype;
+    var origOpen = XHR.open;
+    var origSend = XHR.send;
+    XHR.open = function (method, url) {
+      this.__zhUrl = url;
+      return origOpen.apply(this, arguments);
+    };
+    XHR.send = function (body) {
+      var self = this;
+      var bodyStr = typeof body === "string" ? body : null;
+      try {
+        this.addEventListener("load", function () {
+          try { maybeCaptureCommit(self.__zhUrl || "", bodyStr, self.responseText); } catch (e) {}
+        });
+      } catch (e) {}
+      return origSend.apply(this, arguments);
+    };
+  }
+
+  // Evict a prior send's cached commit response — the modal page is reused, so a
+  // stale body would otherwise surface the previous send's ids/status. Called at
+  // the start of a new send; if this send's commit isn't captured, readCommittedSend
+  // returns null and waitForResult falls back to the success headline.
+  function forgetCommittedSend() {
+    window.__zhCommitSend = null;
+  }
+
+  // Read the authoritative outcome from the intercepted useCommitSendMutation
+  // response (the source of truth at submit time). Returns null when it wasn't
+  // captured, so the caller falls back to the success headline. completeBefore is
+  // always null here — a hold is decided server-side, after this flow.
+  function readCommittedSend() {
+    var body = window.__zhCommitSend;
+    var commitSend = body && body.data && body.data.commitSend;
+    if (!commitSend) return null;
+    var send = commitSend.send;
+    var status = (commitSend.__typename && commitSend.__typename !== "SendsCommitSendSuccess")
+      ? "failed"
+      : ((send && send.status) || "success");
+    return {
+      status: status,
+      completeBefore: null,
+      referenceId: (send && send.referenceId) || null,
+      sendUuid: (send && send.uuid) || null
+    };
+  }
+
+  // Determine the outcome once the success screen renders. Prefer the intercepted
+  // commit response (authoritative status + the send's ids); fall back to
+  // classifying the success headline only when that response isn't captured.
   async function waitForResult() {
     try {
       await waitForElement(SEL.SEND_SUCCESS + ", " + SEL.STATUS_COMPLETE_BTN, 60000);
     } catch (e) {
       return { status: "timeout", completeBefore: null, referenceId: null, sendUuid: null };
     }
+    var committed = readCommittedSend();
+    if (committed) return committed;
     var headline = queryVisible(SEL.SUCCESS_HEADLINE);
     var t = headline ? getInnerText(headline).toLowerCase() : "";
     var failureKeywords = ["fail", "error", "cancel", "falh", "erro"];
@@ -1027,6 +1160,9 @@
     // Drive Send → forms → preview → "Send now", then detect & return the 2FA state.
     start: async function (params) {
       try {
+        // Capture this send's commit response; drop any prior send's first.
+        installCommitInterceptor();
+        forgetCommittedSend();
         await openSendModal();
         await enterRecipient(params.address);
         await runSelectionPhase(params);
