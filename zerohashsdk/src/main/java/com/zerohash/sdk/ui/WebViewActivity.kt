@@ -93,6 +93,13 @@ class WebViewActivity : AppCompatActivity(),
     private var allowList: ZerohashAllowList = ZerohashAllowList.DEFAULT
     private var automationBridge: AutomationBridge? = null
 
+    /**
+     * Set once the web app surfaces a terminal error (see [onTerminalError]).
+     * Keeps [onResume] from un-pausing a WebView we deliberately halted, so the
+     * static error screen never resumes its GPU-pegging repaint.
+     */
+    private var renderingHaltedForError = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -352,6 +359,18 @@ class WebViewActivity : AppCompatActivity(),
         finish()
     }
 
+    override fun onTerminalError() {
+        if (BuildConfig.DEBUG) Log.d(TAG, "Terminal error surfaced; halting WebView rendering")
+        if (::webView.isInitialized) {
+            renderingHaltedForError = true
+            // onPause() pauses animations (stops the endless repaint of the
+            // error screen) but does NOT pause JavaScript — the close button and
+            // the bridge keep working. Per-instance, so any concurrent
+            // automation WebView is unaffected (pauseTimers() would not be).
+            webView.onPause()
+        }
+    }
+
     override fun onAutomationRequest(request: JSONObject) {
         // The offscreen status/balance WebViews attach to this activity's content
         // (1x1, behind the UI WebView); login presents its own modal activity.
@@ -386,6 +405,26 @@ class WebViewActivity : AppCompatActivity(),
         super.onNewIntent(intent)
         if (oauthManager.handleOAuthCallback(intent)) {
             if (BuildConfig.DEBUG) Log.d(TAG, "OAuth callback handled")
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Stop the WebView's animations/rendering while backgrounded (e.g. during
+        // Chrome Custom Tabs OAuth). Per-instance onPause() — NOT the
+        // process-global pauseTimers() — so a Coinbase automation WebView running
+        // in another activity keeps its JS timers alive.
+        if (::webView.isInitialized) {
+            webView.onPause()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Don't un-pause a WebView we halted for a terminal error — the error
+        // screen is static and would just peg the GPU again on its animation.
+        if (::webView.isInitialized && !renderingHaltedForError) {
+            webView.onResume()
         }
     }
 

@@ -96,6 +96,16 @@ internal class WebViewMessageHandler(
          * `ZeroAuthRequest` envelope.
          */
         fun onAutomationRequest(request: JSONObject)
+
+        /**
+         * The web app surfaced a terminal `error` (`{errorCode, reason}`). The
+         * error screen it now shows is static, but its animation keeps the
+         * WebView repainting — pegging the (software-rendered) GPU on the
+         * emulator and wasting battery on device. The activity halts rendering
+         * in response. Distinct from [onSessionClose], which tears the whole
+         * session down.
+         */
+        fun onTerminalError()
     }
 
     var delegate: Delegate? = null
@@ -205,6 +215,7 @@ internal class WebViewMessageHandler(
 
         webView.post {
             callbackHandler.handleError(code, message, data)
+            delegate?.onTerminalError()
         }
     }
 
