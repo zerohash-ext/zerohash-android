@@ -41,9 +41,6 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
     /** The send flow is driven from /home (iOS `Coinbase.withdrawURL`). */
     override val withdrawUrl = HOME_URL
 
-    /** dom-helpers + withdraw.js (both idempotent); read once, reused per call. */
-    private var withdrawPreludeCache: String? = null
-
     /**
      * Detects whether the embedded WebView session is logged in to Coinbase.
      *
@@ -287,8 +284,8 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
         return JSONObject().put("cancelled", raw?.optBoolean("cancelled", false) ?: false)
     }
 
+    /** dom-helpers + withdraw.js (both idempotent). Each asset is read+decoded once
+     *  per process by [readAutomationAsset]'s cache, so no local cache is needed. */
     private fun withdrawPrelude(session: AutomationSession): String =
-        withdrawPreludeCache ?: (
-            session.asset("automation/dom-helpers.js") + "\n" + session.asset("automation/withdraw.js")
-        ).also { withdrawPreludeCache = it }
+        session.asset("automation/dom-helpers.js") + "\n" + session.asset("automation/withdraw.js")
 }
