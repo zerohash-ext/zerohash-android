@@ -55,6 +55,10 @@ class WebViewActivity : AppCompatActivity(),
         // evicted on the next setCallbackHandler call.
         private const val HANDLER_TTL_MS = 5L * 60L * 1000L
 
+        // Grace period after resuming from an OAuth Custom Tab before treating a
+        // still-pending flow as a user cancel. Lets a real redirect callback land first.
+        private const val OAUTH_CANCEL_GRACE_MS = 500L
+
         private data class HandlerEntry(
             val handler: CallbackHandler,
             val createdAt: Long
@@ -425,6 +429,19 @@ class WebViewActivity : AppCompatActivity(),
         // screen is static and would just peg the GPU again on its animation.
         if (::webView.isInitialized && !renderingHaltedForError) {
             webView.onResume()
+        }
+        // Chrome Custom Tabs give no "dismissed" callback. If we resume with an
+        // OAuth flow still pending, the user backed out of the tab without
+        // completing it — tell the web SDK so its waitForConnectionId resolves
+        // and the "Continue" spinner resets (otherwise it hangs). The short delay
+        // lets a real redirect callback (onNewIntent → handleCallback) win the
+        // race and clear the pending flow first.
+        if (::webView.isInitialized && oauthManager.hasPendingOAuth) {
+            webView.postDelayed({
+                if (oauthManager.hasPendingOAuth) {
+                    oauthManager.cancelPendingOAuth()
+                }
+            }, OAUTH_CANCEL_GRACE_MS)
         }
     }
 

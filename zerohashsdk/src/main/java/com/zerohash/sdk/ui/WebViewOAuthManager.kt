@@ -120,4 +120,19 @@ class WebViewOAuthManager(
     fun handleOAuthCallback(intent: Intent?): Boolean {
         return oauthHandler.handleCallback(intent)
     }
+
+    /**
+     * Whether an OAuth flow is awaiting its redirect callback. The host activity
+     * uses this to detect a Custom Tab back-out on resume.
+     */
+    val hasPendingOAuth: Boolean
+        get() = oauthHandler.hasPendingFlow
+
+    /**
+     * Signal that the user returned without completing OAuth (Custom Tab
+     * dismissed). Fires the cancel path so the web SDK stops waiting.
+     */
+    fun cancelPendingOAuth() {
+        oauthHandler.cancelPendingFlow()
+    }
 }

@@ -190,6 +190,28 @@ class OAuthHandler(
     }
 
     /**
+     * Whether an OAuth flow is currently awaiting its redirect callback — true
+     * from [startOAuthFlow] until [handleCallback] resolves (or the flow is
+     * cancelled/cleared).
+     */
+    val hasPendingFlow: Boolean
+        get() = currentCallback != null
+
+    /**
+     * Cancel a pending flow because the user returned to the app without an
+     * OAuth redirect — i.e. backed out of the Custom Tab. Chrome Custom Tabs
+     * emit no dismiss event, so the host activity infers this on resume. Fires
+     * [OAuthCallback.onCancel] so the web SDK's `waitForConnectionId` resolves
+     * instead of spinning forever. No-op if no flow is pending.
+     */
+    fun cancelPendingFlow() {
+        val callback = currentCallback ?: return
+        currentCallback = null
+        if (BuildConfig.DEBUG) Log.d(TAG, "OAuth flow cancelled: returned without callback")
+        callback.onCancel()
+    }
+
+    /**
      * Clear current state (e.g., on activity destroy).
      */
     fun clear() {
