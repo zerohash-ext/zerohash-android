@@ -17,6 +17,14 @@ import org.json.JSONObject
  */
 internal interface Platform {
     val id: String
+
+    /**
+     * Host URLs (scheme + host, no path) whose cookies belong to this provider's
+     * automation. Cleared at workflow teardown ([AutomationBridge.dispose]) so
+     * provider session material doesn't outlive the workflow in the process-wide
+     * Android CookieManager. See [AutomationCookies.clearForHosts].
+     */
+    val cookieHosts: List<String> get() = emptyList()
 }
 
 /** auth.status / auth.login. */
@@ -77,4 +85,9 @@ internal object PlatformRegistry {
 
     @Synchronized
     operator fun get(id: String): Platform? = platforms[id]
+
+    /** Snapshot of the registered platforms (order not guaranteed). Used by the
+     *  bridge teardown to enumerate provider cookie hosts for clearing. */
+    @Synchronized
+    fun all(): List<Platform> = platforms.values.toList()
 }

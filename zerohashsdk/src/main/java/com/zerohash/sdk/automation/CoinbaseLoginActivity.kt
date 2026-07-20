@@ -157,6 +157,13 @@ internal class CoinbaseLoginActivity : AppCompatActivity() {
         if (done) return
         done = true
         handler.removeCallbacksAndMessages(null)
+        // Cookies set during a login attempt that did NOT reach `success` are
+        // dead weight — no follow-on Coinbase operation will use them — and
+        // would otherwise linger in the process-wide CookieManager. Evict them
+        // now instead of waiting for the eventual bridge dispose.
+        if (outcome != "success") {
+            AutomationCookies.clearForHosts(Coinbase.cookieHosts)
+        }
         pending?.complete(outcome)
         pending = null
         finish()
@@ -165,9 +172,12 @@ internal class CoinbaseLoginActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         handler.removeCallbacksAndMessages(null)
-        // If the modal is torn down before a success redirect, the user backed out.
+        // If the modal is torn down before a success redirect, the user backed
+        // out — same as finishWith("user-closed"): non-success outcome, so evict
+        // any Coinbase cookies the abandoned attempt seeded.
         if (!done) {
             done = true
+            AutomationCookies.clearForHosts(Coinbase.cookieHosts)
             pending?.complete("user-closed")
             pending = null
         }

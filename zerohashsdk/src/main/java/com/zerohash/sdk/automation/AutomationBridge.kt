@@ -332,6 +332,10 @@ internal class AutomationBridge(
         sessions.values.forEach { it.session.dismiss() }
         sessions.clear()
         scope.cancel()
+        // Evict provider session cookies from the process-wide CookieManager
+        // so they don't outlive the workflow.
+        val providerHosts = PlatformRegistry.all().flatMap { it.cookieHosts }
+        AutomationCookies.clearForHosts(providerHosts)
     }
 
     companion object {

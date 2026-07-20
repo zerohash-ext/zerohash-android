@@ -19,6 +19,18 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
 
     override val id = "cbase"
 
+    /**
+     * Hosts touched by the Coinbase automation, cleared on workflow teardown.
+     * `appleid.apple.com` is included because Sign-in-with-Apple runs in a
+     * child WebView that shares the process-wide cookie jar.
+     */
+    override val cookieHosts = listOf(
+        "https://login.coinbase.com",
+        "https://www.coinbase.com",
+        "https://coinbase.com",
+        "https://appleid.apple.com",
+    )
+
     private const val TAG = "ZHAutomation"
     private const val HOME_URL = "https://www.coinbase.com/home"
     private const val TRADE_URL = "https://www.coinbase.com/trade"
