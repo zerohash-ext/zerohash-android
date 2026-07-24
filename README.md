@@ -77,3 +77,8 @@ integration guide.
 
 Local test-only files (Netskope CA, JitPack switch, SDK-source banner) are
 documented in [`DO_NOT_COMMIT.md`](DO_NOT_COMMIT.md).
+
+## License
+
+Licensed under the zerohash Android Wrapper License — a proprietary license.
+See [`LICENSE`](LICENSE) for the full terms. Questions: legal@zerohash.com.

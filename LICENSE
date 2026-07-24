@@ -1,0 +1,47 @@
+zerohash Android Wrapper License
+
+Copyright (c) 2026 zerohash holdings ltd. and its affiliates ("zerohash"). All rights reserved.
+
+This Android library, including all associated source code, object code, documentation, and related materials (the "Wrapper"), is a wrapper and adapter layer that enables zerohash's proprietary software development kit (the "Underlying SDK") to be integrated into and run within Android applications. The Wrapper and the Underlying SDK are the proprietary property of zerohash and are protected by United States and international copyright, trade secret, and other intellectual property laws. Both are licensed, not sold. The Wrapper does not itself contain the full functionality of the Underlying SDK; it provides Android-compatible bindings, interfaces, and calls that invoke the Underlying SDK.
+
+1. LICENSE GRANT
+
+Subject to the terms of this License and any separate written agreement between you or your organization ("Licensee") and zerohash governing Licensee's access to zerohash's products and services (a "Services Agreement"), zerohash grants Licensee a limited, non-exclusive, non-transferable, non-sublicensable, revocable license to install, embed, and use the Wrapper in Licensee's Android applications solely for the purpose of enabling those applications to interface with the Underlying SDK and zerohash's related application programming interfaces and services. This License grants no rights in or to the Underlying SDK itself, which is licensed, if at all, solely under the applicable Services Agreement. No license is granted for any other purpose.
+
+2. NO SERVICES AGREEMENT; INDEPENDENT USE
+
+Downloading or installing the Wrapper does not, by itself, grant Licensee any access to the Underlying SDK or to zerohash's products or services. The Wrapper has no independent functionality absent a connection to the Underlying SDK. Use of the Wrapper in connection with zerohash's live production environment requires a separate, effective Services Agreement with zerohash, under which zerohash separately makes the Underlying SDK available. If Licensee has no such agreement, this License permits inspection and non-production testing of the Wrapper only, and does not provide any means of accessing the Underlying SDK.
+
+3. RESTRICTIONS
+
+Licensee shall not, and shall not permit any third party to: (a) modify, translate, reverse engineer, decompile, or disassemble the Wrapper, or attempt to derive the Underlying SDK or its source code from the Wrapper's bindings, calls, or interfaces, except to the extent such restriction is prohibited by applicable law; (b) redistribute, sell, lease, sublicense, or otherwise make the Wrapper available to any third party independent of Licensee's own application; (c) remove or alter any proprietary notices or marks on or in the Wrapper; (d) use the Wrapper to build a product or service that competes with zerohash's products or services; or (e) use the Wrapper to access, invoke, or interface with the Underlying SDK, or any zerohash API or service, other than through the authorized channels contemplated by a Services Agreement.
+
+4. OWNERSHIP
+
+zerohash retains all right, title, and interest in and to the Wrapper and the Underlying SDK, including all intellectual property rights therein. No rights are granted to Licensee other than as expressly set forth in this License. All trademarks, service marks, and trade names of zerohash are proprietary of zerohash, and no license or right to use any such marks is granted under this License.
+
+5. THIRD-PARTY COMPONENTS
+
+The Wrapper may include third-party open source or other components subject to separate license terms, including the Kotlin programming language which runs on the Apache Software License Version 2.0 (which is available at https://www.apache.org/licenses/LICENSE-2.0). Those components are licensed to Licensee under their respective terms, and nothing in this License limits Licensee's rights or obligations under such third-party terms.
+
+6. DISCLAIMER OF WARRANTIES
+
+THE WRAPPER IS PROVIDED "AS IS," WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. ZEROHASH DOES NOT WARRANT THAT THE WRAPPER WILL BE ERROR-FREE OR UNINTERRUPTED, OR THAT IT WILL FUNCTION WITHOUT AN ACTIVE CONNECTION TO THE UNDERLYING SDK.
+
+7. LIMITATION OF LIABILITY
+
+IN NO EVENT SHALL ZEROHASH BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS OR DATA, ARISING OUT OF OR IN CONNECTION WITH THE WRAPPER, THE UNDERLYING SDK, OR THIS LICENSE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+8. TERMINATION
+
+This License terminates automatically if Licensee breaches any provision of this License or if the applicable Services Agreement terminates. Upon termination, Licensee shall cease all use of the Wrapper and destroy all copies in its possession.
+
+9. GOVERNING LAW
+
+This License is governed by the laws of the State of Illinois, without regard to its conflict of laws principles.
+
+10. ENTIRE AGREEMENT; CONFLICT
+
+This License, together with any applicable Services Agreement, constitutes the entire agreement between the parties regarding the Wrapper. In the event of a conflict between this License and a Services Agreement, the Services Agreement controls.
+
+For questions regarding this License, contact legal@zerohash.com.

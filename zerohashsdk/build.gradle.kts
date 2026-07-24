@@ -2,6 +2,8 @@ plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
     id("maven-publish")
+    // Maven Central publishing; applied only under -PmavenCentralRelease (below).
+    id("com.vanniktech.maven.publish") version "0.30.0" apply false
 }
 
 android {
@@ -15,9 +17,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
 
-        // Exposes the SDK version at runtime for the automation bridge's
-        // core.ping reply (mirrors iOS `ConnectSDK.version`). Same single source
-        // of truth as the publishing block: the git tag via -PSDK_VERSION.
+        // SDK version at runtime for the automation bridge's core.ping reply.
         buildConfigField(
             "String",
             "SDK_VERSION",
@@ -73,19 +73,63 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("release") {
-            groupId = "com.zerohash"
-            artifactId = "zerohash-sdk"
+// Artifact version comes from the git tag via -PSDK_VERSION; SNAPSHOT locally.
+val sdkVersion = (findProperty("SDK_VERSION") as? String) ?: "0.0.0-SNAPSHOT"
 
-            // Single source of truth = git tag, forwarded by JitPack as
-            // -PSDK_VERSION=$VERSION (see jitpack.yml); fall back to a SNAPSHOT
-            // marker for local publishToMavenLocal runs.
-            version = (findProperty("SDK_VERSION") as? String) ?: "0.0.0-SNAPSHOT"
+// -PmavenCentralRelease: signed Central Portal publish (workflow only).
+// Default (no flag): unsigned maven-publish path below, used by JitPack.
+if (project.hasProperty("mavenCentralRelease")) {
+    apply(plugin = "com.vanniktech.maven.publish")
 
-            afterEvaluate {
-                from(components["release"])
+    configure<com.vanniktech.maven.publish.MavenPublishBaseExtension> {
+        // Staging deployment, released by hand in the Portal UI.
+        publishToMavenCentral(
+            com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL,
+            automaticRelease = false,
+        )
+        signAllPublications()
+
+        coordinates("com.zerohash", "zerohash-sdk", sdkVersion)
+        configure(com.vanniktech.maven.publish.AndroidSingleVariantLibrary("release"))
+
+        // url/scm point at the public mirror. All fields required by Central.
+        pom {
+            name.set("zerohash Android SDK")
+            description.set("zerohash SDK for Android — drop-in native integration for the zerohash Fund flow.")
+            url.set("https://github.com/zerohash-ext/zerohash-android")
+            // Proprietary license; `name` matches the LICENSE file heading.
+            licenses {
+                license {
+                    name.set("zerohash Android Wrapper License")
+                    url.set("https://github.com/zerohash-ext/zerohash-android/blob/main/LICENSE")
+                    distribution.set("repo")
+                }
+            }
+            developers {
+                developer {
+                    id.set("zerohash")
+                    name.set("zerohash")
+                    email.set("security@zerohash.com")
+                }
+            }
+            scm {
+                url.set("https://github.com/zerohash-ext/zerohash-android")
+                connection.set("scm:git:https://github.com/zerohash-ext/zerohash-android.git")
+                developerConnection.set("scm:git:ssh://git@github.com/zerohash-ext/zerohash-android.git")
+            }
+        }
+    }
+} else {
+    publishing {
+        publications {
+            create<MavenPublication>("release") {
+                groupId = "com.zerohash"
+                artifactId = "zerohash-sdk"
+                version = sdkVersion
+
+                afterEvaluate {
+                    from(components["release"])
+                }
             }
         }
     }
