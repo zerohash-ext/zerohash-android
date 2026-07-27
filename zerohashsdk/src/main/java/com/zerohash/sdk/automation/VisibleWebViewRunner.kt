@@ -92,6 +92,17 @@ internal class VisibleWebViewRunner(private val activity: Activity) {
 
         wv.addJavascriptInterface(PromiseBridge(), BRIDGE)
         wv.webViewClient = object : WebViewClient() {
+            // Navigation host allowlist: this WebView carries the live Coinbase
+            // session and runs the balance / deposit-address automation, so only
+            // Coinbase-owned origins may load in the main frame. Sub-frames (e.g. the
+            // Cloudflare Turnstile widget) are left alone.
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
+                blockOffCoinbaseNavigation(request?.url?.toString(), request?.isForMainFrame != false, TAG)
+
+            @Deprecated("Deprecated in Java")
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean =
+                blockOffCoinbaseNavigation(url, isMainFrame = true, TAG)
+
             override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                 if (result.isCompleted || started) return
                 val host = hostOf(finishedUrl)

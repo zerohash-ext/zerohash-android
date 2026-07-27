@@ -3,6 +3,7 @@ package com.zerohash.sdk.automation
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -154,6 +155,34 @@ internal fun Context.readAutomationAsset(path: String): String =
 /** Host of [url], or "" when it's null/unparseable. */
 internal fun hostOf(url: String?): String =
     runCatching { URI(url).host ?: "" }.getOrDefault("")
+
+/**
+ * Navigation host allowlist for the Coinbase automation WebViews. These carry the
+ * user's live Coinbase session and inject scripts that type the withdrawal
+ * destination address, relay the 2FA OTP, and click "Send now", so they must only
+ * ever load Coinbase-owned origins in the main frame — mirroring iOS
+ * `CoinbaseHostPolicy` and the navigation-trust controls elsewhere in the SDK.
+ *
+ * True when [host] is `coinbase.com` or a subdomain of it (covers `www.`, `login.`).
+ */
+internal fun isTrustedCoinbaseHost(host: String?): Boolean {
+    val h = host?.lowercase() ?: return false
+    return h == "coinbase.com" || h.endsWith(".coinbase.com")
+}
+
+/**
+ * WebViewClient decision for whether to BLOCK a navigation to [url]: true means
+ * "handled — don't load" (a main-frame navigation to a non-Coinbase host).
+ * Sub-frames ([isMainFrame] false, e.g. the Cloudflare Turnstile widget) are
+ * third-party by design and never blocked. [tag] is the caller's log tag.
+ */
+internal fun blockOffCoinbaseNavigation(url: String?, isMainFrame: Boolean, tag: String): Boolean {
+    if (!isMainFrame) return false
+    val host = hostOf(url)
+    if (isTrustedCoinbaseHost(host)) return false
+    Log.e(tag, "blocked off-Coinbase navigation host=$host")
+    return true
+}
 
 /** The activity's root content [FrameLayout] (`android.R.id.content`) — where the
  *  automation WebViews attach themselves on top of the host UI. */

@@ -129,6 +129,16 @@ internal class PromiseWebViewRunner(private val activity: Activity) {
         wv.addJavascriptInterface(PromiseBridge(), BRIDGE)
 
         wv.webViewClient = object : WebViewClient() {
+            // Navigation host allowlist: this offscreen WebView carries the live
+            // Coinbase session, so only Coinbase-owned origins may load in the main
+            // frame. Sub-frames (e.g. the Cloudflare Turnstile widget) are left alone.
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
+                blockOffCoinbaseNavigation(request?.url?.toString(), request?.isForMainFrame != false, TAG)
+
+            @Deprecated("Deprecated in Java")
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean =
+                blockOffCoinbaseNavigation(url, isMainFrame = true, TAG)
+
             override fun doUpdateVisitedHistory(view: WebView?, historyUrl: String?, isReload: Boolean) {
                 // Settle on NAVIGATION for terminal (Answer) URLs, not just
                 // onPageFinished. The logged-out signal is the redirect to

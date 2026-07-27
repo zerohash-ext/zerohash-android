@@ -8,6 +8,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -72,6 +73,15 @@ internal class AutomationSession(
             override fun onPageFinished(view: WebView?, u: String?) {
                 if (!initialLoad.isCompleted) initialLoad.complete(Unit)
             }
+
+            // Navigation host allowlist: this session drives the Coinbase withdrawal
+            // automation, so only Coinbase-owned origins may load in the main frame.
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
+                blockOffCoinbaseNavigation(request?.url?.toString(), request?.isForMainFrame != false, TAG)
+
+            @Deprecated("Deprecated in Java")
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean =
+                blockOffCoinbaseNavigation(url, isMainFrame = true, TAG)
         }
         wv.webChromeClient = WebChromeClient()
 
@@ -115,6 +125,14 @@ internal class AutomationSession(
 
         val argDecl = if (argName != null) "var $argName = $argJson;" else ""
         val wrapped = buildPromiseWrapper(BRIDGE, id, prelude, argDecl, entryExpr)
+
+        // Refuse to run money-movement automation if the page has somehow landed off Coinbase,
+        // even if a navigation slipped past the WebViewClient allowlist.
+        val currentHost = hostOf(webView?.url)
+        if (!isTrustedCoinbaseHost(currentHost)) {
+            pending.remove(id)
+            throw PlatformException("withdraw/untrusted-host")
+        }
 
         Log.d(TAG, "evaluateAsync id=$id ${entryExpr.take(60)}")
         webView?.evaluateJavascript(wrapped, null)

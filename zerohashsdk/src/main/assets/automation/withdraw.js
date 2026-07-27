@@ -516,6 +516,22 @@
   async function dismissNetworkWarning() {
     var btn = await waitForElement(SEL.NETWORK_WARNING_CONTINUE, 5000);
     await humanClick(btn);
+    // Wait for THIS warning to actually clear before returning. detectNextScreen
+    // keys off NETWORK_WARNING_CONTINUE and returns "networkWarning" the instant
+    // it's visible, so returning before the click takes effect makes the selection
+    // loop re-detect the same screen and trip the revisit guard. Retry the click
+    // once if it didn't take (React may bind on pointerdown before the button is
+    // interactive). Mirrors clickAndVerifyAdvance's click-then-verify pattern.
+    var start = Date.now(), retried = false;
+    while (Date.now() - start < 6000) {
+      if (!queryVisible(SEL.NETWORK_WARNING_CONTINUE)) return;
+      if (!retried && Date.now() - start > 1200) {
+        retried = true;
+        var again = document.querySelector(SEL.NETWORK_WARNING_CONTINUE);
+        if (again) await humanClick(again);
+      }
+      await D.sleep(150);
+    }
   }
 
   var RECIPIENT_TYPE_OPTION = {
@@ -751,12 +767,18 @@
       }
     };
     var prev;
-    var visited = {};
+    var counts = {};
+    // networkWarning is a transient acknowledgement, not a phase — Coinbase can
+    // legitimately show it more than once (e.g. a second confirmation for some
+    // asset/network pairs), so allow a bounded number of repeats. Every other
+    // screen is a distinct phase; revisiting one is a genuine stall.
+    var NETWORK_WARNING_LIMIT = 3;
     for (;;) {
       var next = await detectNextScreen({ notStep: prev });
       if (next === "amount") return;
-      if (visited[next]) throw new Error("withdraw/selection-phase-stalled: revisited " + next);
-      visited[next] = true;
+      counts[next] = (counts[next] || 0) + 1;
+      var limit = next === "networkWarning" ? NETWORK_WARNING_LIMIT : 1;
+      if (counts[next] > limit) throw new Error("withdraw/selection-phase-stalled: revisited " + next);
       var handler = SELECTION[next];
       await handler.run();
       prev = handler.step;
