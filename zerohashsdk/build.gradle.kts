@@ -89,7 +89,7 @@ if (project.hasProperty("mavenCentralRelease")) {
         )
         signAllPublications()
 
-        coordinates("com.zerohash", "zerohash-sdk", sdkVersion)
+        coordinates("com.zerohash", "zerohash-android", sdkVersion)
         configure(com.vanniktech.maven.publish.AndroidSingleVariantLibrary("release"))
 
         // url/scm point at the public mirror. All fields required by Central.
@@ -124,7 +124,7 @@ if (project.hasProperty("mavenCentralRelease")) {
         publications {
             create<MavenPublication>("release") {
                 groupId = "com.zerohash"
-                artifactId = "zerohash-sdk"
+                artifactId = "zerohash-android"
                 version = sdkVersion
 
                 afterEvaluate {
