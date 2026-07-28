@@ -35,15 +35,21 @@ enum class Theme {
  */
 enum class Environment {
     SANDBOX,
-    PRODUCTION;
+    PRODUCTION,
+
+    /**
+     * INTERNAL TESTING ONLY — zerohash's pre-release gating environment, used by
+     * the instrumentation e2e suite (AUTH-3838). Not for partner use.
+     */
+    GATING;
 
     /**
      * Native vocabulary forwarded to the web app via the `jwt` message
-     * (`{ token, env }`). The mobile web app maps `production -> prod` and
-     * `sandbox -> cert` for the inner Fund iframe.
+     * (`{ token, env }`). GATING sends `sandbox` — the web vocabulary only has
+     * production/sandbox; the gating deployment's runtime env-config picks the hosts.
      */
     fun toWebValue(): String = when (this) {
-        SANDBOX -> "sandbox"
+        SANDBOX, GATING -> "sandbox"
         PRODUCTION -> "production"
     }
 
@@ -67,6 +73,7 @@ enum class Environment {
         get() = when (this) {
             SANDBOX -> "sdk-cdn.cert.zerohash.com"
             PRODUCTION -> "sdk-cdn.zerohash.com"
+            GATING -> "connect-sdk.gating.0hash.com"
         }
 }
 
