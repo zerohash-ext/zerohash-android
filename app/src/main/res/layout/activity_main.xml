@@ -137,6 +137,16 @@
             android:text="Open Fund"
             android:textSize="18sp"
             android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <!-- Crypto Withdrawals Button -->
+        <Button
+            android:id="@+id/btnCryptoWithdrawals"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:text="Open Crypto Withdrawals"
+            android:textSize="18sp"
+            android:textStyle="bold"
             android:layout_marginBottom="24dp" />
 
         <!-- Log Section -->

@@ -168,6 +168,7 @@ internal class WebViewMessageHandler(
                 "error" -> handleError(data)
                 "event" -> handleEvent(data)
                 "deposit" -> handleDeposit(data)
+                "crypto-withdrawal" -> handleCryptoWithdrawal(data)
                 else -> Log.w(TAG, "Unknown message type: $type")
             }
         } catch (e: Exception) {
@@ -234,6 +235,12 @@ internal class WebViewMessageHandler(
     private fun handleDeposit(data: JSONObject?) {
         webView.post {
             callbackHandler.handleDeposit(data)
+        }
+    }
+
+    private fun handleCryptoWithdrawal(data: JSONObject?) {
+        webView.post {
+            callbackHandler.handleCryptoWithdrawal(data)
         }
     }
 

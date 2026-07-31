@@ -1,5 +1,7 @@
 package com.zerohash.sdk
 
+import com.zerohash.sdk.cryptowithdrawals.CryptoWithdrawalsCallbacks
+import com.zerohash.sdk.cryptowithdrawals.ZerohashCryptoWithdrawalsSession
 import com.zerohash.sdk.fund.FundCallbacks
 import com.zerohash.sdk.fund.ZerohashFundSession
 
@@ -8,7 +10,7 @@ import com.zerohash.sdk.fund.ZerohashFundSession
  *
  * Provides static factory methods to create authenticated sessions with the
  * zerohash platform. This build ships the **Fund** flow (account funding /
- * pay-to-settle).
+ * pay-to-settle) and the **Crypto Withdrawals** flow.
  */
 object ZerohashSDK {
 
@@ -46,6 +48,48 @@ object ZerohashSDK {
         callbacks: FundCallbacks
     ): ZerohashFundSession {
         return ZerohashFundSession(
+            jwt = jwt,
+            environment = environment,
+            theme = theme,
+            allowList = allowList,
+            callbacks = callbacks
+        )
+    }
+
+    /**
+     * Configure and create a Crypto Withdrawals session.
+     *
+     * @param jwt JWT token for authentication
+     * @param environment Environment to connect to (default: PRODUCTION)
+     * @param theme UI theme (default: SYSTEM)
+     * @param allowList Hosts the embedded WebView may navigate to / load from
+     * @param callbacks Callbacks for session events
+     * @return [ZerohashCryptoWithdrawalsSession] instance ready to be presented
+     *
+     * Example usage:
+     * ```
+     * val session = ZerohashSDK.configureCryptoWithdrawals(
+     *     jwt = "your-jwt-token",
+     *     environment = Environment.PRODUCTION,
+     *     theme = Theme.SYSTEM,
+     *     callbacks = object : CryptoWithdrawalsCallbacks {
+     *         override fun onClose() { /* handle close */ }
+     *         override fun onError(error: ZerohashError) { /* handle error */ }
+     *         override fun onEvent(event: GenericEvent) { /* handle event */ }
+     *         override fun onWithdrawalCompleted(event: CryptoWithdrawalsCompletedEvent) { /* done */ }
+     *     }
+     * )
+     * session.present(activity)
+     * ```
+     */
+    fun configureCryptoWithdrawals(
+        jwt: String,
+        environment: Environment = Environment.PRODUCTION,
+        theme: Theme = Theme.SYSTEM,
+        allowList: ZerohashAllowList = ZerohashAllowList.DEFAULT,
+        callbacks: CryptoWithdrawalsCallbacks
+    ): ZerohashCryptoWithdrawalsSession {
+        return ZerohashCryptoWithdrawalsSession(
             jwt = jwt,
             environment = environment,
             theme = theme,

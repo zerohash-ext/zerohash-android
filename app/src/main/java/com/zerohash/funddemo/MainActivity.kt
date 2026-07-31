@@ -10,6 +10,9 @@ import com.zerohash.sdk.ZerohashSDK
 import com.zerohash.sdk.Environment
 import com.zerohash.sdk.GenericEvent
 import com.zerohash.sdk.Theme
+import com.zerohash.sdk.cryptowithdrawals.CryptoWithdrawalsCallbacks
+import com.zerohash.sdk.cryptowithdrawals.CryptoWithdrawalsCompletedEvent
+import com.zerohash.sdk.cryptowithdrawals.ZerohashCryptoWithdrawalsSession
 import com.zerohash.sdk.fund.FundCallbacks
 import com.zerohash.sdk.fund.FundCompletedEvent
 import com.zerohash.sdk.fund.ZerohashFundSession
@@ -18,6 +21,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private var fundSession: ZerohashFundSession? = null
+    private var cryptoWithdrawalsSession: ZerohashCryptoWithdrawalsSession? = null
 
     companion object {
         private const val TAG = "ZerohashDemo"
@@ -40,6 +44,10 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnFund.setOnClickListener {
             startFund()
+        }
+
+        binding.btnCryptoWithdrawals.setOnClickListener {
+            startCryptoWithdrawals()
         }
 
         binding.btnClearLog.setOnClickListener {
@@ -89,6 +97,53 @@ class MainActivity : AppCompatActivity() {
             addLog("Fund session presented")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start Fund", e)
+            addLog("Exception: ${e.message}")
+            showToast("Failed to start: ${e.message}")
+        }
+    }
+
+    private fun startCryptoWithdrawals() {
+        val jwt = resolveJwt()
+        val environment = selectedEnvironment()
+        val theme = selectedTheme()
+
+        addLog("SDK source: ${BuildConfig.ZEROHASH_SDK_SOURCE}")
+        addLog("Environment: ${environment.toWebValue()}")
+        addLog("Theme: ${theme.toWebValue()}")
+
+        try {
+            addLog("Starting Crypto Withdrawals session...")
+            cryptoWithdrawalsSession = ZerohashSDK.configureCryptoWithdrawals(
+                jwt = jwt,
+                environment = environment,
+                theme = theme,
+                callbacks = object : CryptoWithdrawalsCallbacks {
+                    override fun onClose() {
+                        addLog("Session closed")
+                        showToast("Session closed")
+                        cryptoWithdrawalsSession = null
+                    }
+
+                    override fun onError(error: ZerohashError) {
+                        Log.e(TAG, "Crypto Withdrawals error: ${error.message}")
+                        addLog("Error: ${error.message}")
+                        showToast("Error: ${error.message}")
+                    }
+
+                    override fun onEvent(event: GenericEvent) {
+                        addLog("Event: ${event.type}")
+                    }
+
+                    override fun onWithdrawalCompleted(event: CryptoWithdrawalsCompletedEvent) {
+                        addLog("Withdrawal completed: ${event.withdrawalRequestId}")
+                        showToast("Withdrawal completed")
+                    }
+                }
+            )
+            cryptoWithdrawalsSession?.present(this)
+            addLog("Crypto Withdrawals session presented")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start Crypto Withdrawals", e)
             addLog("Exception: ${e.message}")
             showToast("Failed to start: ${e.message}")
         }

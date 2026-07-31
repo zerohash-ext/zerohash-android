@@ -8,7 +8,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Identifies the Zerohash app type rendered by the SDK.
  */
 enum class ZerohashApp {
-    FUND
+    FUND,
+    CRYPTO_WITHDRAWALS
 }
 
 /**
@@ -179,6 +180,13 @@ internal interface CallbackHandler {
     fun handleError(code: String?, message: String, data: JSONObject?)
     fun handleEvent(type: String, data: JSONObject?)
     fun handleDeposit(data: JSONObject?) {}
+
+    /**
+     * Crypto Withdrawals completion, posted by the mobile web app as a
+     * `crypto-withdrawal` message. Default no-op so deposit-only flows (Fund)
+     * need not implement it.
+     */
+    fun handleCryptoWithdrawal(data: JSONObject?) {}
 }
 
 /**
