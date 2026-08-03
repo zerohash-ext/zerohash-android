@@ -12,6 +12,24 @@ an external address). It renders the zerohash mobile web app inside a hardened
 | **Language** | Kotlin 1.9+ |
 | **Build** | Gradle 8.2+, JDK 17 |
 
+## Installation
+
+The SDK is published to Maven Central as `com.zerohash:zerohash-android`.
+
+```kotlin
+// settings.gradle.kts
+dependencyResolutionManagement {
+    repositories {
+        mavenCentral()
+    }
+}
+
+// app/build.gradle.kts
+dependencies {
+    implementation("com.zerohash:zerohash-android:1.0.3")
+}
+```
+
 ## Quick start — Fund
 
 ```kotlin
@@ -117,14 +135,10 @@ same lifecycle:
 
 ## Architecture
 
-See [`CLAUDE.md`](CLAUDE.md) for the bridge protocol and OAuth details, and
-[`ZEROHASH_ANDROID_OVERVIEW.md`](ZEROHASH_ANDROID_OVERVIEW.md) for the full
-integration guide.
-
-> **Note:** This SDK is a port of `connect-android`. The Fund and Crypto
-> Withdrawals flows differ from Auth/Recovery/Withdrawal only in that their web
-> apps render the UI inside an iframe — that iframe layer lives on the web side,
-> so the Android bridge is the same.
+Each flow renders the zerohash mobile web app inside a hardened `WebView` and
+communicates with it over a JavaScript↔Kotlin bridge. External-source OAuth
+(where a flow needs to authenticate against a third-party provider) is handed
+off to Chrome Custom Tabs rather than run inside the SDK's WebView.
 
 ## Local development
 
@@ -134,9 +148,6 @@ emulator/device:
 ```bash
 ./gradlew :app:installDebug
 ```
-
-Local test-only files (Netskope CA, JitPack switch, SDK-source banner) are
-documented in [`DO_NOT_COMMIT.md`](DO_NOT_COMMIT.md).
 
 ## License
 
