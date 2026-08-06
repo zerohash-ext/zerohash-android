@@ -49,7 +49,7 @@ class MainActivity : AppCompatActivity() {
     private fun openFund(jwt: String) {
         fundSession = ZerohashSDK.configureFund(
             jwt = jwt,                              // required
-            environment = Environment.PRODUCTION,   // optional (default)
+            environment = Environment.PRODUCTION,   // optional; or Environment.SANDBOX
             theme = Theme.SYSTEM,                    // optional (default)
             callbacks = object : FundCallbacks {
                 override fun onClose() { fundSession = null }
@@ -72,8 +72,31 @@ class MainActivity : AppCompatActivity() {
 }
 ```
 
-Only `jwt` and `callbacks` are required. `environment` defaults to `PRODUCTION`,
-`theme` to `SYSTEM` (mapped to the web app's `auto`).
+Only `jwt` and `callbacks` are required. `environment` defaults to `PRODUCTION`
+(set it to `Environment.SANDBOX` to point at the test backend, see
+[Environment](#environment) below), `theme` to `SYSTEM` (mapped to the web app's
+`auto`).
+
+## Environment
+
+`Environment` selects which zerohash backend the flow runs against. Both
+`configureFund` and `configureCryptoWithdrawals` take it as an optional parameter.
+
+| Value | Backend host | Use for |
+| --- | --- | --- |
+| `Environment.PRODUCTION` (default) | `sdk-cdn.zerohash.com` | Live partner traffic |
+| `Environment.SANDBOX` | `sdk-cdn.cert.zerohash.com` | Integration and testing |
+
+```kotlin
+fundSession = ZerohashSDK.configureFund(
+    jwt = jwt,
+    environment = Environment.SANDBOX,
+    callbacks = callbacks,
+)
+```
+
+The JWT and the environment must match: a sandbox-minted JWT only works with
+`Environment.SANDBOX`, and a production JWT only with `Environment.PRODUCTION`.
 
 ## Quick start — Crypto Withdrawals
 
@@ -97,7 +120,7 @@ class MainActivity : AppCompatActivity() {
     private fun openCryptoWithdrawals(jwt: String) {
         withdrawalsSession = ZerohashSDK.configureCryptoWithdrawals(
             jwt = jwt,                              // required
-            environment = Environment.PRODUCTION,   // optional (default)
+            environment = Environment.PRODUCTION,   // optional; or Environment.SANDBOX
             theme = Theme.SYSTEM,                   // optional (default)
             callbacks = object : CryptoWithdrawalsCallbacks {
                 override fun onClose() { withdrawalsSession = null }
