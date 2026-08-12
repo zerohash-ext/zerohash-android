@@ -44,6 +44,22 @@
   // Network-acceptance warning
   var NETWORK_WARNING_CONTINUE = '[data-testid="network-warning-step-understand"]';
 
+  // Coinbase's Transitioner keeps the OUTGOING step mounted while it fades out,
+  // re-stamped `-inactive`. isVisible (below) only checks offsetParent + a
+  // non-zero rect — never opacity — so a fading node still reads as visible.
+  // Anything inside one of these containers is STALE and must not drive the flow:
+  // reading a just-acknowledged warning out of one is what produced
+  // `withdraw/selection-phase-stalled: revisited networkWarning`.
+  var STEP_INACTIVE = '[data-testid^="step-"][data-testid$="-inactive"]';
+  // The container hosting BOTH the network list and the acceptance warning — the
+  // scope root for the label fallback below.
+  var STEP_L2_SELECTION = '[data-testid="step-l2SelectionStep-active"]';
+  // Label fallbacks for the acknowledge button, used only once a testid drift has
+  // hidden NETWORK_WARNING_CONTINUE. Coinbase renders a CURLY apostrophe (U+2019);
+  // the ASCII form and an apostrophe-free fragment follow as last resorts.
+  var NETWORK_WARNING_ACK_TEXTS = ["Yes, it’s supported", "Yes, it's supported"];
+  var NETWORK_WARNING_ACK_FRAGMENT = "supported";
+
   // Destination tag / memo
   var STEP_DESTINATION_TAG = '[data-testid="step-destinationTagStep-active"]';
   var DESTINATION_TAG_INPUT = STEP_DESTINATION_TAG + ' input';
@@ -128,6 +144,10 @@
     NETWORK_ITEMS_ANY: NETWORK_ITEMS_ANY,
     networkTestId: networkTestId,
     NETWORK_WARNING_CONTINUE: NETWORK_WARNING_CONTINUE,
+    STEP_INACTIVE: STEP_INACTIVE,
+    STEP_L2_SELECTION: STEP_L2_SELECTION,
+    NETWORK_WARNING_ACK_TEXTS: NETWORK_WARNING_ACK_TEXTS,
+    NETWORK_WARNING_ACK_FRAGMENT: NETWORK_WARNING_ACK_FRAGMENT,
     STEP_DESTINATION_TAG: STEP_DESTINATION_TAG,
     DESTINATION_TAG_INPUT: DESTINATION_TAG_INPUT,
     SKIP_DESTINATION_TAG: SKIP_DESTINATION_TAG,
@@ -192,6 +212,20 @@
     var nodes = document.querySelectorAll(sel);
     for (var i = 0; i < nodes.length; i++) {
       if (isVisible(nodes[i])) return nodes[i];
+    }
+    return null;
+  }
+
+  // queryVisible scoped to LIVE content: same visibility test, but skips nodes
+  // sitting inside a step container Coinbase already re-stamped `-inactive`.
+  // isVisible can't tell a fading container from a live one (it never looks at
+  // opacity), which is how a just-acknowledged warning got re-read as fresh.
+  function queryVisibleLive(sel) {
+    var nodes = document.querySelectorAll(sel);
+    for (var i = 0; i < nodes.length; i++) {
+      if (!isVisible(nodes[i])) continue;
+      if (nodes[i].closest(SEL.STEP_INACTIVE)) continue;
+      return nodes[i];
     }
     return null;
   }
@@ -424,29 +458,121 @@
     await humanClick(item);
   }
 
+  // Synchronous button/clickable text scan, scoped to `root`. Mirrors
+  // waitForButtonByText's matching but does a single pass (its callers poll).
+  function findButtonByTextSync(text, opts) {
+    opts = opts || {};
+    var root = opts.root || document;
+    var match = opts.match || "exact";
+    var requireEnabled = opts.requireEnabled || false;
+    var want = String(text).toLowerCase();
+    var btns = root.querySelectorAll("button, [role='button'], a");
+    for (var i = 0; i < btns.length; i++) {
+      var t = (btns[i].textContent || "").trim().toLowerCase();
+      var ok = match === "contains" ? t.indexOf(want) !== -1 : t === want;
+      if (ok && !(requireEnabled && isDisabled(btns[i]))) return btns[i];
+    }
+    return null;
+  }
+
+  // The live acknowledge control for the network-acceptance warning, or null.
+  // `allowFallback` enables the label match — a safety net for a testid drift that
+  // callers gate behind a delay so it can't fire mid-transition, and which refuses
+  // whenever the l2 container still holds network cells (a live list is never the
+  // warning).
+  function findNetworkWarningAck(opts) {
+    opts = opts || {};
+    var direct = queryVisibleLive(SEL.NETWORK_WARNING_CONTINUE);
+    if (direct) return direct;
+    if (!opts.allowFallback) return null;
+
+    var root = queryVisibleLive(SEL.STEP_L2_SELECTION);
+    if (!root) return null;
+    if (root.querySelector(SEL.NETWORK_ITEMS_ANY)) return null;
+
+    for (var i = 0; i < SEL.NETWORK_WARNING_ACK_TEXTS.length; i++) {
+      var btn = findButtonByTextSync(SEL.NETWORK_WARNING_ACK_TEXTS[i], { root: root, requireEnabled: true });
+      if (btn) return btn;
+    }
+    return findButtonByTextSync(SEL.NETWORK_WARNING_ACK_FRAGMENT, {
+      root: root, match: "contains", requireEnabled: true
+    });
+  }
+
+  // The screen a step container uniquely determines, if any. `l2SelectionStep`
+  // maps to null: the acceptance warning shares that container, so it can't be
+  // resolved until the content checks (amount anchor / ack button) have run.
+  function screenForStep(step) {
+    if (step === "assetSelection") return "coin";
+    if (step === "destinationTagStep") return "destinationTag";
+    if (step === "amountEntry") return "amount";
+    return null;
+  }
+
+  // True once the warning is behind us: a later step is live, the amount screen's
+  // own input is live, or the acknowledge control is gone. Content anchors come
+  // first because readActiveStep returns ONE step by reverse document order — with
+  // the fading l2 container and the incoming amountEntry both stamped `-active` it
+  // can legitimately report the stale one.
+  function pastNetworkWarning() {
+    var step = readActiveStep();
+    if (step && step !== "loaded" && step !== "l2SelectionStep") return true;
+    if (queryVisibleLive(SEL.CURRENCY_INPUT)) return true;
+    return findNetworkWarningAck({ allowFallback: true }) === null;
+  }
+
+  function settledPastWarning(timeoutMs) {
+    return pollUntil(function () { return pastNetworkWarning() ? true : null; }, timeoutMs)
+      .then(function () { return true; }, function () { return false; });
+  }
+
+  // How long the acknowledge button must stay missing-by-testid before the label
+  // fallback is allowed to fire. In a normal transition the testid (or a real step
+  // name) resolves within a few hundred ms, so the fallback is unreachable on the
+  // happy path — its false-positive surface is only "the testid was gone this long".
+  var FALLBACK_AFTER_MS = 2000;
+  // How long dismissNetworkWarning hunts for the button, and how long it waits for
+  // the warning to actually clear after clicking it.
+  var WARNING_FIND_MS = 5000;
+  var WARNING_CLEAR_MS = 3000;
+
   // Coinbase keeps the previous step container mounted during fade; `notStep`
   // skips the just-completed step so the race doesn't re-read what we left.
   async function detectNextScreen(opts) {
     opts = opts || {};
     var timeoutMs = opts.timeoutMs || 15000;
     var notStep = opts.notStep;
+    var fallbackAfterMs = opts.fallbackAfterMs != null ? opts.fallbackAfterMs : FALLBACK_AFTER_MS;
     var start = Date.now();
     var lastSeen = null;
     while (Date.now() - start < timeoutMs) {
-      // Content-identified: the network-acceptance warning shares l2SelectionStep's
-      // id, so key off its acknowledge button instead of the step name.
-      if (queryVisible(SEL.NETWORK_WARNING_CONTINUE)) return "networkWarning";
+      // Advance signals FIRST. The warning check used to lead, which let an
+      // acknowledged warning still fading inside its container out-rank the screen
+      // we had actually reached — the selection loop then saw `networkWarning`
+      // twice and threw selection-phase-stalled.
       var step = readActiveStep();
       if (step && step !== "loaded" && step !== notStep) {
         lastSeen = step;
-        if (step === "assetSelection") return "coin";
-        if (step === "l2SelectionStep") return "network";
-        if (step === "destinationTagStep") return "destinationTag";
-        if (step === "amountEntry") return "amount";
+        var mapped = screenForStep(step);
+        if (mapped) return mapped;
       }
+      // Content anchor for amount entry — see pastNetworkWarning on why the step
+      // id alone can't be trusted mid-transition.
+      if (queryVisibleLive(SEL.CURRENCY_INPUT)) return "amount";
+      // Content-identified interstitial: shares l2SelectionStep's id, so neither
+      // the step name nor `notStep` can tell it apart.
+      if (findNetworkWarningAck({ allowFallback: Date.now() - start >= fallbackAfterMs })) {
+        return "networkWarning";
+      }
+      if (step === "l2SelectionStep" && step !== notStep) return "network";
       await D.sleep(150);
     }
-    throw new Error('withdraw/no-next-screen: last seen step "' + (lastSeen || "(none)") + '"');
+    // Report whether an acknowledge button exists in the document at all: if one
+    // does, nothing resolved because every match was stale (or the label drifted),
+    // a different diagnosis from "the screen never rendered".
+    var staleAck = document.querySelector(SEL.NETWORK_WARNING_CONTINUE) !== null;
+    throw new Error('withdraw/no-next-screen: last seen step "' + (lastSeen || "(none)") +
+      '" (stale ack in DOM: ' + staleAck + ')');
   }
 
   // React may bind on pointerdown and the container can mount before its cells —
@@ -512,26 +638,39 @@
 
   // Network-acceptance warning ("Does your recipient accept <ASSET> on <NETWORK>?").
   // The host already chose this network in the payload, so confirm support and
-  // advance. The "don't show again" checkbox is left untouched.
-  async function dismissNetworkWarning() {
-    var btn = await waitForElement(SEL.NETWORK_WARNING_CONTINUE, 5000);
-    await humanClick(btn);
-    // Wait for THIS warning to actually clear before returning. detectNextScreen
-    // keys off NETWORK_WARNING_CONTINUE and returns "networkWarning" the instant
-    // it's visible, so returning before the click takes effect makes the selection
-    // loop re-detect the same screen and trip the revisit guard. Retry the click
-    // once if it didn't take (React may bind on pointerdown before the button is
-    // interactive). Mirrors clickAndVerifyAdvance's click-then-verify pattern.
-    var start = Date.now(), retried = false;
-    while (Date.now() - start < 6000) {
-      if (!queryVisible(SEL.NETWORK_WARNING_CONTINUE)) return;
-      if (!retried && Date.now() - start > 1200) {
-        retried = true;
-        var again = document.querySelector(SEL.NETWORK_WARNING_CONTINUE);
-        if (again) await humanClick(again);
-      }
-      await D.sleep(150);
+  // advance. The "don't show again" checkbox is left untouched: it mutates an
+  // ACCOUNT-WIDE loss-prevention preference (changing what the user sees on their
+  // own manual sends), and it's scoped per asset+network anyway, so ticking it
+  // wouldn't remove this path. Consequence: the warning recurs on every
+  // ETH-on-Base withdrawal, so this path is hot and has to be reliable.
+  async function dismissNetworkWarning(opts) {
+    opts = opts || {};
+    var findMs = opts.findMs || WARNING_FIND_MS;
+    var clearMs = opts.clearMs || WARNING_CLEAR_MS;
+
+    // Resolve through the live finder, not waitForElement: that one is a raw
+    // querySelector with no visibility filter, so it can hand back a stale node
+    // from a fading container and we'd click something inert.
+    var ack = await pollUntil(function () {
+      return findNetworkWarningAck({ allowFallback: true });
+    }, findMs).catch(function () { return null; });
+    // Already gone — the flow advanced on its own. Idempotent by design.
+    if (!ack) return;
+
+    await humanClick(ack);
+    if (await settledPastWarning(clearMs)) return;
+
+    // Coinbase binds on pointerdown and re-renders mid-transition — re-query and
+    // click once more, keyed on THIS control clearing rather than a step name.
+    var again = findNetworkWarningAck({ allowFallback: true });
+    if (again) {
+      console.warn("[withdraw] network warning still up after acknowledge; retrying");
+      await humanClick(again);
+      if (await settledPastWarning(clearMs)) return;
     }
+    // Deliberately does not throw: the selection loop re-detects and re-attempts up
+    // to its cap, so the phase keeps exactly one failure point (its own budget).
+    console.warn("[withdraw] network warning not confirmed dismissed; letting the loop re-detect");
   }
 
   var RECIPIENT_TYPE_OPTION = {
@@ -750,10 +889,36 @@
     await humanClick(skipBtn);
   }
 
+  // Wall-clock bound on the whole selection phase — defence in depth beyond the
+  // per-screen caps below and detectNextScreen's own per-iteration timeout. Budget
+  // math: 4 legitimate screens × (≤15s detect + handler) ≈ 90s worst case on a
+  // genuinely slow page, so 120s never bites a real flow.
+  var SELECTION_PHASE_BUDGET_MS = 120000;
+  var SELECTION_DETECT_TIMEOUT_MS = 15000;
+
+  // Re-detects tolerated per screen. The acceptance warning gets a few: Coinbase
+  // can chain interstitials, and our own acknowledge can be re-read while the
+  // container fades out. Re-clicking "Yes, it's supported" is idempotent and moves
+  // no money — whereas re-running `network` or `coin` could pick a DIFFERENT
+  // network or asset, so those stay single-shot and keep genuine stall detection.
+  var SCREEN_ATTEMPT_CAP = { coin: 1, network: 1, networkWarning: 3, destinationTag: 1 };
+
+  function tallyScreens(seen) {
+    var parts = [];
+    for (var k in seen) {
+      if (Object.prototype.hasOwnProperty.call(seen, k)) parts.push(k + "×" + seen[k]);
+    }
+    return parts.join(", ") || "no screens";
+  }
+
   // Walk Coinbase's selection screens (coin / network / destination-tag) until
-  // amount entry.
-  async function runSelectionPhase(payload) {
-    var SELECTION = {
+  // amount entry. `opts.detect` / `opts.handlers` are test seams that default to
+  // the real collaborators, so production always runs the real ones; `opts.budgetMs`
+  // overrides the wall-clock budget (used to keep tests fast).
+  async function runSelectionPhase(payload, opts) {
+    opts = opts || {};
+    var detect = opts.detect || detectNextScreen;
+    var SELECTION = opts.handlers || {
       coin: { run: function () { return selectCoin(payload.asset); }, step: "assetSelection" },
       network: { run: function () { return selectNetwork(requireNetwork(payload)); }, step: "l2SelectionStep" },
       networkWarning: { run: function () { return dismissNetworkWarning(); }, step: "l2SelectionStep" },
@@ -766,21 +931,28 @@
         step: "destinationTagStep"
       }
     };
+    var deadline = Date.now() + (opts.budgetMs || SELECTION_PHASE_BUDGET_MS);
     var prev;
-    var counts = {};
-    // networkWarning is a transient acknowledgement, not a phase — Coinbase can
-    // legitimately show it more than once (e.g. a second confirmation for some
-    // asset/network pairs), so allow a bounded number of repeats. Every other
-    // screen is a distinct phase; revisiting one is a genuine stall.
-    var NETWORK_WARNING_LIMIT = 3;
+    var seen = {};
     for (;;) {
-      var next = await detectNextScreen({ notStep: prev });
+      var remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw new Error("withdraw/selection-phase-stalled: budget exhausted (" + tallyScreens(seen) + ")");
+      }
+      // Clamp the detect window to what's left of the budget so the phase can only
+      // overrun by one handler's own internal timeout.
+      var next = await detect({ notStep: prev, timeoutMs: Math.min(SELECTION_DETECT_TIMEOUT_MS, remaining) });
       if (next === "amount") return;
-      counts[next] = (counts[next] || 0) + 1;
-      var limit = next === "networkWarning" ? NETWORK_WARNING_LIMIT : 1;
-      if (counts[next] > limit) throw new Error("withdraw/selection-phase-stalled: revisited " + next);
+
+      var count = (seen[next] || 0) + 1;
+      seen[next] = count;
+      var cap = SCREEN_ATTEMPT_CAP[next];
+      if (count > cap) {
+        throw new Error("withdraw/selection-phase-stalled: revisited " + next + " " + count + "× (cap " + cap + ")");
+      }
+
       var handler = SELECTION[next];
-      await handler.run();
+      await handler.run(payload);
       prev = handler.step;
     }
   }

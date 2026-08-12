@@ -23,7 +23,27 @@ class ZerohashAllowList(val hosts: List<String>) {
          * component + iframe bundles from (`zerohash.eu` for EU-region JWTs).
          */
         @JvmField
-        val DEFAULT = ZerohashAllowList(listOf("connect.xyz", "zerohash.com", "zerohash.eu", "0hash.com"))
+        val DEFAULT =
+            ZerohashAllowList(
+                listOf(
+                    "connect.xyz",
+                    "zerohash.com",
+                    "zerohash.eu",
+                    "0hash.com",
+                    // Dynamic powers the self-custody wallet list and connect flow.
+                    // List the specific hosts, never the apex: the dot-suffix match
+                    // would otherwise trust every subdomain of a third-party apex
+                    // (e.g. any *.ton.org) as a loadable frame origin inside the
+                    // WebView that hosts the native bridge.
+                    "app.dynamicauth.com",
+                    "logs.dynamicauth.com",
+                    "relay.dynamicauth.com",
+                    "iconic.dynamic-static-assets.com",
+                    "www.dynamic.xyz",
+                    // TON Connect wallet registry, required for TON wallets.
+                    "config.ton.org",
+                ),
+            )
     }
 
     /**
