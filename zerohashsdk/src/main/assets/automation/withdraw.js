@@ -65,10 +65,20 @@
   var DESTINATION_TAG_INPUT = STEP_DESTINATION_TAG + ' input';
   var SKIP_DESTINATION_TAG = '[data-testid="skip-destination-tag"]';
 
-  // Risk-engine ID/liveness verification (current send)
+  // ID/liveness verification. STEP_RISK_VERIFICATION is the container; deciding on
+  // it needs a SETTLED sub-state below, since the container can be up while still
+  // rendering (e.g. the transient scam-warning intro). Matched by data-testid
+  // (locale-independent), never button text.
   var STEP_RISK_VERIFICATION = '[data-testid="step-riskSelfServeStep-active"]';
+  var RISK_START_CHALLENGE = '[data-testid="start-challenge-button"]';
+  var RISK_STEP_IDV = '[data-testid="step-idVerification-active"]';
+  var RISK_IDV_FAILED = '[data-testid="id-capture-reskinned-failure-view"]';
+  // Transient intro frame, rendered before the buttons exist.
+  var RISK_SCAM_INTRO = '[data-testid="scam-warning-intro"]';
   var RISK_START_ID_CHECK_LABEL = "Start ID check";
   var RISK_CANCEL_TRANSFER_LABEL = "Cancel transfer";
+  // Only used by readPendingTransfer, for the separate step-previousTransfer
+  // screen. The risk screen has no such label.
   var RISK_COMPLETE_BEFORE_LABEL = "Complete before";
 
   // "Review pending transfer" — a PRIOR transfer blocking a new send
@@ -90,6 +100,10 @@
   var COUNTRY_SELECT = '[data-testid="country-select"]';
   function countryOption(cc) { return '[data-testid="country-option-' + cc + '"]'; }
   var SUBMIT_BUTTON = '[data-testid="submit-button"]';
+  // "I'm transferring to myself" checkbox. The real <input> is hidden behind a
+  // styled wrapper; `own-account-checkbox-parent` is the hittable element.
+  var OWN_ACCOUNT_CHECKBOX = '[data-testid="own-account-checkbox"]';
+  var OWN_ACCOUNT_CHECKBOX_PARENT = '[data-testid="own-account-checkbox-parent"]';
 
   // Transfer details (purpose + relationship) form
   var TRANSFER_PURPOSE = '[data-testid="transfer-purpose-select"]';
@@ -152,6 +166,10 @@
     DESTINATION_TAG_INPUT: DESTINATION_TAG_INPUT,
     SKIP_DESTINATION_TAG: SKIP_DESTINATION_TAG,
     STEP_RISK_VERIFICATION: STEP_RISK_VERIFICATION,
+    RISK_START_CHALLENGE: RISK_START_CHALLENGE,
+    RISK_STEP_IDV: RISK_STEP_IDV,
+    RISK_IDV_FAILED: RISK_IDV_FAILED,
+    RISK_SCAM_INTRO: RISK_SCAM_INTRO,
     RISK_START_ID_CHECK_LABEL: RISK_START_ID_CHECK_LABEL,
     RISK_CANCEL_TRANSFER_LABEL: RISK_CANCEL_TRANSFER_LABEL,
     RISK_COMPLETE_BEFORE_LABEL: RISK_COMPLETE_BEFORE_LABEL,
@@ -167,6 +185,8 @@
     COUNTRY_SELECT: COUNTRY_SELECT,
     countryOption: countryOption,
     SUBMIT_BUTTON: SUBMIT_BUTTON,
+    OWN_ACCOUNT_CHECKBOX: OWN_ACCOUNT_CHECKBOX,
+    OWN_ACCOUNT_CHECKBOX_PARENT: OWN_ACCOUNT_CHECKBOX_PARENT,
     TRANSFER_PURPOSE: TRANSFER_PURPOSE,
     TRANSFER_RELATIONSHIP: TRANSFER_RELATIONSHIP,
     TRANSFER_SUBMIT: TRANSFER_SUBMIT,
@@ -589,19 +609,60 @@
     if (again) await humanClick(again);
   }
 
+  // Tagged error for an address that can't receive the chosen asset — Coinbase
+  // shows the asset disabled or NO sendable asset at all ("No compatible assets").
+  // Terminal + user-actionable; start's catch converts it to a rejected/
+  // address_unsupported state instead of clicking a disabled cell and timing out.
+  function addressUnsupportedError() {
+    var e = new Error("withdraw/address-unsupported: this asset can't be sent to the recipient address");
+    e.zhAddressUnsupported = true;
+    return e;
+  }
+
+  // True when the asset step is up but EVERY asset cell is disabled — the "No
+  // compatible assets" state. Structural: one enabled cell means a still-loading
+  // list, not an incompatible address.
+  function isNoCompatibleAssets() {
+    if (readActiveStep() !== "assetSelection") return false;
+    var cells = Array.prototype.slice.call(document.querySelectorAll(SEL.COIN_LIST));
+    return cells.length > 0 && cells.every(function (c) { return isDisabled(c); });
+  }
+
+  // How long the incompatible state must persist before we trust it — a loading
+  // list can read as all-disabled for a moment.
+  var INCOMPATIBLE_CONFIRM_POLLS = 6;
+
   async function selectCoin(ticker) {
     var directSelector = SEL.coinDirect(ticker);
     var start = Date.now();
+    var incompatibleStreak = 0;
     while (Date.now() - start < 5000) {
       var direct = document.querySelector(directSelector);
-      if (direct) { await clickAndVerifyAdvance(direct, "selectCoin(" + ticker + ")"); return; }
+      if (direct && !isDisabled(direct)) {
+        await clickAndVerifyAdvance(direct, "selectCoin(" + ticker + ")");
+        return;
+      }
+      // Incompatible with the recipient address: the requested asset's cell is
+      // disabled, or nothing is sendable. Bail with a specific error once stable.
+      var incompatible = (direct !== null && isDisabled(direct)) || isNoCompatibleAssets();
+      incompatibleStreak = incompatible ? incompatibleStreak + 1 : 0;
+      if (incompatibleStreak >= INCOMPATIBLE_CONFIRM_POLLS) throw addressUnsupportedError();
       await D.sleep(150);
     }
+    // 5s without an enabled target cell. Surface incompatibility specifically,
+    // else enumerate what's on screen for a useful not-found error.
+    if (isNoCompatibleAssets()) throw addressUnsupportedError();
     var items = Array.prototype.slice.call(document.querySelectorAll(SEL.COIN_LIST));
     for (var i = 0; i < items.length; i++) {
       var testId = items[i].getAttribute("data-testid") || "";
       var t = testId.replace("send-asset-selector-cell-", "").replace("-cell-pressable", "").toUpperCase();
-      if (t === ticker.toUpperCase()) { await clickAndVerifyAdvance(items[i], "selectCoin"); return; }
+      if (t === ticker.toUpperCase()) {
+        // Present but disabled for this address — a specific, user-actionable
+        // rejection rather than a no-op click.
+        if (isDisabled(items[i])) throw addressUnsupportedError();
+        await clickAndVerifyAdvance(items[i], "selectCoin");
+        return;
+      }
     }
     var available = items.map(function (it) {
       var id = it.getAttribute("data-testid") || "";
@@ -682,18 +743,70 @@
   async function selectRecipientTypeIfPresent(type) {
     var step = await waitForElement(SEL.STEP_SELECT_RECIPIENT_TYPE, 10000).catch(function () { return null; });
     if (!step || !queryVisible(SEL.STEP_SELECT_RECIPIENT_TYPE)) return;
-    var btn = step.querySelector(RECIPIENT_TYPE_OPTION[type]);
-    if (!btn) throw new Error("withdraw/recipient-type-option-not-found: " + type);
-    btn.click();
+    var selector = RECIPIENT_TYPE_OPTION[type];
+    if (!selector) throw new Error("withdraw/recipient-type-option-not-found: " + type);
+    // The step container mounts BEFORE its option buttons render, so a single
+    // query races the mount — poll for the option, re-reading the step each time.
+    var btn = await pollUntil(function () {
+      var s = queryVisible(SEL.STEP_SELECT_RECIPIENT_TYPE) || step;
+      return s ? s.querySelector(selector) : null;
+    }, 5000, "withdraw/recipient-type-option-not-found: " + type);
+    await humanClick(btn);
+  }
+
+  // The self-transfer checkbox ("I'm transferring to myself"), matched by its own
+  // testid — the page carries several checkboxes. Returns the <input> or null.
+  function selfTransferCheckbox() {
+    return document.querySelector(SEL.OWN_ACCOUNT_CHECKBOX);
+  }
+
+  function isChecked(box) {
+    return !!(box && (box.checked || box.getAttribute("aria-checked") === "true"));
+  }
+
+  // The real <input> is hidden behind a styled wrapper, so click the hittable
+  // parent (own-account-checkbox-parent), falling back to the input.
+  function clickCheckbox(box) {
+    var parent = queryVisible(SEL.OWN_ACCOUNT_CHECKBOX_PARENT);
+    return humanClick(parent || box);
   }
 
   // Travel-rule (FATF) "Who are you sending to?" form. Returns "filled" or
-  // "not_required" (never appeared). Throws if it appeared but the host didn't
-  // supply travelRule data. (The "I'm sending to myself" checkbox is not used —
-  // we fill beneficiary name + country.)
-  async function fillTravelRule(data) {
+  // "not_required" (never appeared).
+  //
+  // Self-transfer (opts.selfTransfer): tick Coinbase's "I'm transferring to
+  // myself" checkbox instead of typing beneficiary details — it auto-fills the
+  // beneficiary (name + BR CPF) from the account holder, sidestepping the CPF
+  // field we can't populate. Only when the checkbox is present; else falls
+  // through to manual entry (still throws if no beneficiary name was supplied).
+  async function fillTravelRule(data, opts) {
+    opts = opts || {};
     var which = await waitForAny([SEL.BENEFICIARY_NAME, SEL.SEND_NOW], 10000);
     if (which !== SEL.BENEFICIARY_NAME) return "not_required";
+
+    if (opts.selfTransfer) {
+      var box = selfTransferCheckbox();
+      if (box) {
+        // Tick it (idempotent). The click lands on the styled parent, so confirm
+        // the input toggled and retry once before trusting it.
+        if (!isChecked(box)) {
+          await clickCheckbox(box);
+          await pollUntil(function () { return isChecked(selfTransferCheckbox()) ? true : null; }, 1500)
+            .catch(function () { return null; });
+          if (!isChecked(selfTransferCheckbox())) await clickCheckbox(box);
+        }
+        // Coinbase validates async; wait for submit to enable before clicking.
+        var submitSelf = await pollUntil(function () {
+          var b = queryVisible(SEL.SUBMIT_BUTTON);
+          return (b && !isDisabled(b)) ? b : null;
+        }, 5000, "withdraw/travel-rule-self-submit-not-ready");
+        await humanClick(submitSelf);
+        await D.sleep(500);
+        return "filled";
+      }
+      // Checkbox not found — fall through to manual entry (no regression).
+    }
+
     if (!data || !data.name) throw new Error("withdraw/travel-rule-missing-data");
 
     var nameInput = await waitForElement(SEL.BENEFICIARY_NAME, 5000);
@@ -979,15 +1092,51 @@
     SEL.STEP_RISK_VERIFICATION, SEL.SEND_SUCCESS, SEL.STATUS_COMPLETE_BTN
   ];
 
-  async function confirmAndSend() {
+  function normalizeAddress(addr) {
+    return String(addr || "").trim().toLowerCase().replace(/\s+/g, "");
+  }
+
+  // Best-effort check that the recipient on the confirm/preview screen is the
+  // address the host authorized. The preview may show a contact name and/or a
+  // TRUNCATED address ("Sandro … 9LFU…UGd2"), so assert only what we can and PASS
+  // whenever nothing comparable is present — never block a send it can't verify,
+  // only catch a positive contradiction. DOM-based, so it guards a wrong-row/
+  // autofill send, NOT an active DOM attacker.
+  function previewRecipientMatches(previewText, authorized) {
+    var want = normalizeAddress(authorized);
+    if (!want || !previewText) return true;
+    if (normalizeAddress(previewText).indexOf(want) !== -1) return true; // full address shown
+    // Truncated head…tail (ellipsis U+2026 or "..."). Match on the ORIGINAL text.
+    var m = previewText.match(/([A-Za-z0-9]{3,})\s*(?:…|\.{2,})\s*([A-Za-z0-9]{3,})/);
+    if (!m) return true; // no address-like token → nothing to assert
+    var head = m[1].toLowerCase();
+    var tail = m[2].toLowerCase();
+    if (want.slice(-tail.length) !== tail) return false; // tail is the reliable suffix
+    if (want.indexOf(head) === 0) return true;
+    // Tolerate a contact name fused onto the head.
+    for (var i = 1; i <= head.length - 3; i++) {
+      if (want.indexOf(head.slice(i)) === 0) return true;
+    }
+    return false;
+  }
+
+  function recipientMismatchError() {
+    return new Error("withdraw/recipient-mismatch: preview recipient does not match the authorized address");
+  }
+
+  async function confirmAndSend(authorizedAddress) {
     var which = await waitForAny([SEL.SEND_NOW, SEL.CURRENCY_INPUT].concat(POST_SEND_GATES), 15000);
     if (!which) throw new Error("Neither confirm screen nor amount screen appeared");
     if (which === SEL.CURRENCY_INPUT) throw new Error(readAmountValidationError());
     // Advanced past confirm into a 2FA/risk/success gate — read what we can; the
-    // caller's detectAndHandle2fa handles the gate next.
+    // caller's detectAndHandle2fa handles the gate next. (No pre-click verify: the
+    // send already advanced, so there's nothing left to prevent.)
     if (which !== SEL.SEND_NOW) return readSendPreview();
 
     var details = readSendPreview();
+    // Verify the previewed recipient matches what the host authorized BEFORE
+    // clicking Send now — refuse to authorize a send to a mismatched address.
+    if (!previewRecipientMatches(details.recipient, authorizedAddress)) throw recipientMismatchError();
     await humanDelay(500); // let the preview settle / human "review"
     var sendBtn = await waitForElement(SEL.SEND_NOW, 5000);
     await humanClick(sendBtn);
@@ -1007,12 +1156,35 @@
     return null;
   }
 
-  function parseRiskCompleteBefore() {
-    var step = queryVisible(SEL.STEP_RISK_VERIFICATION);
-    return step ? readLabeledValue(step, SEL.RISK_COMPLETE_BEFORE_LABEL) : null;
+  // True only when the risk container has rendered a SETTLED sub-state. The bare
+  // container is not enough — it mounts before the buttons exist (scam-warning
+  // intro), and deciding on that transitional frame is a misread.
+  function riskIdVerificationSettled() {
+    if (!queryVisible(SEL.STEP_RISK_VERIFICATION)) return false;
+    return !!(queryVisible(SEL.RISK_START_CHALLENGE) ||
+              queryVisible(SEL.RISK_STEP_IDV) ||
+              queryVisible(SEL.RISK_IDV_FAILED));
+  }
+
+  // Sticky hold: the risk screen does NOT advance when the check clears elsewhere,
+  // so once we've reported an ID/liveness hold we keep reporting it — a vanished
+  // risk screen means we lost track of a held send, not that it succeeded.
+  function sawIdVerification() { return !!moduleState().sawIdVerification; }
+  function rememberIdVerification() { moduleState().sawIdVerification = true; }
+
+  // The unambiguous "the send went through" markers: the success panel and its
+  // headline. Weaker markers (the generic status "Done" button, or the modal
+  // overlay merely being gone) must NOT overrule a known hold.
+  function confirmedSuccess() {
+    return !!(queryVisible(SEL.SEND_SUCCESS) || queryVisible(SEL.SUCCESS_HEADLINE));
   }
 
   function isOtpScreen() {
+    // The twoFactorStep container mounts a beat BEFORE its code inputs paint. Treat
+    // the active step itself as the OTP gate so the paint gap isn't misread: without
+    // this, activeGate() returns null and past2fa() hits its "overlay not visible →
+    // done" branch, so a send needing OTP is misreported as {kind:"none"}/submitted.
+    if (readActiveStep() === "twoFactorStep") return true;
     return !!(queryVisible(SEL.OTP_INPUT) || queryVisible(SEL.OTP_CONTAINER) ||
               queryVisible(SEL.TWO_FACTOR_TOTP) || queryVisible(SEL.TWO_FACTOR_SMS));
   }
@@ -1043,6 +1215,10 @@
   function past2fa() {
     if (wasTransferCanceled()) return false;
     if (activeGate()) return false;
+    // Once a hold was seen, declare "done" only on UNAMBIGUOUS success — the weak
+    // markers below must not flip a held send to "submitted" (a wrong "submitted"
+    // loses a send still pending verification; a wrong hold self-corrects).
+    if (sawIdVerification()) return confirmedSuccess();
     if (queryVisible(SEL.SEND_SUCCESS)) return true;
     if (queryVisible(SEL.STATUS_COMPLETE_BTN)) return true;
     var overlay = document.querySelector(SEL.MODAL_OVERLAY);
@@ -1067,13 +1243,15 @@
       throw new Error("withdraw/unknown-failure: neither success nor 2FA UI appeared");
     }
     if (past2fa()) return { kind: "none" };
-    if (which === SEL.STEP_RISK_VERIFICATION || queryVisible(SEL.STEP_RISK_VERIFICATION)) {
-      return { kind: "id-verification", completeBefore: parseRiskCompleteBefore() };
+    if (riskIdVerificationSettled() || sawIdVerification()) {
+      rememberIdVerification();
+      return { kind: "id-verification", completeBefore: null };
     }
     await D.sleep(1500); // let the modal settle before inspecting buttons
     if (past2fa()) return { kind: "none" };
-    if (queryVisible(SEL.STEP_RISK_VERIFICATION)) {
-      return { kind: "id-verification", completeBefore: parseRiskCompleteBefore() };
+    if (riskIdVerificationSettled() || sawIdVerification()) {
+      rememberIdVerification();
+      return { kind: "id-verification", completeBefore: null };
     }
     if (chooseOtpMethod()) return { kind: "otp" };
     if (queryVisible(SEL.PASSKEY_PROMPT)) return { kind: "passkey" };
@@ -1280,17 +1458,20 @@
   function fillOtpCode(firstInput, code) {
     var container = firstInput.closest(SEL.OTP_CONTAINER) || queryVisible(SEL.OTP_CONTAINER);
     var boxes = container ? Array.prototype.slice.call(container.querySelectorAll("input")) : [firstInput];
-    if (boxes.length <= 1) {
-      firstInput.focus();
-      setReactValue(firstInput, code);
-      dispatchPaste(firstInput, code);
+    if (boxes.length > 1) {
+      // Split per-digit inputs (Coinbase's 6-box TOTP): the boxes are React-
+      // controlled and IGNORE a per-box value setter, but they DO handle a paste of
+      // the full code on the first box and auto-distribute it (verified on-device).
+      // Don't also set per-box values — that fights the component's distribution.
+      boxes[0].focus();
+      dispatchPaste(boxes[0], code);
       return;
     }
-    var digits = String(code).split("");
-    for (var i = 0; i < boxes.length; i++) {
-      boxes[i].focus();
-      setReactValue(boxes[i], digits[i] || "");
-    }
+    // Single-field variant: set the value and also paste (some variants only split
+    // the value out on paste).
+    firstInput.focus();
+    setReactValue(firstInput, code);
+    dispatchPaste(firstInput, code);
   }
 
   // Type the code. true = accepted (past2fa flipped or the code screen advanced);
@@ -1320,12 +1501,15 @@
     while (Date.now() < deadline) {
       if (wasTransferCanceled()) return "canceled";
       if (past2fa()) return "submitted";
-      if (queryVisible(SEL.STEP_RISK_VERIFICATION)) return "id-verification";
+      if (riskIdVerificationSettled() || sawIdVerification()) return "id-verification";
       if (chooseOtpMethod()) return "otp";
       if (isOtpScreen()) return "otp";
       if (queryVisible(SEL.PASSKEY_PROMPT)) return "passkey";
       await D.sleep(500);
     }
+    // A known hold outranks a bare "processing": the risk screen may have vanished
+    // without advancing, so keep the host polling the held check.
+    if (sawIdVerification()) return "id-verification";
     return "processing";
   }
 
@@ -1362,9 +1546,14 @@
         await runSelectionPhase(params);
         await enterAmount(params.amount, params.asset);
         await selectRecipientTypeIfPresent(params.recipientType || "self-custody");
-        await fillTravelRule(params.travelRule);
+        // Self-transfer: the webapp sends transferDetails.purpose "Transfer to my
+        // own account". Signal it so fillTravelRule ticks the "I'm transferring to
+        // myself" checkbox (auto-fills beneficiary + BR CPF) instead of typing.
+        var isSelfTransfer = !!(params.transferDetails &&
+          params.transferDetails.purpose === "Transfer to my own account");
+        await fillTravelRule(params.travelRule, { selfTransfer: isSelfTransfer });
         await fillTransferDetails(params.transferDetails);
-        var details = await confirmAndSend();
+        var details = await confirmAndSend(params.address);
         moduleState().details = details; // persist for continue()
         var outcome = await detectAndHandle2fa();
         if (outcome.kind === "none") return await finalizeSubmitted(details);
@@ -1375,6 +1564,12 @@
         // what to resolve at coinbase.com.
         if (e && e.zhPendingTransfer) {
           return { state: "rejected", reason: "pending_transfer", pendingTransfer: e.zhPendingTransfer };
+        }
+        // The recipient address can't receive the chosen asset ("No compatible
+        // assets" / disabled cell) — terminal + user-actionable, so surface a
+        // specific rejection instead of the generic coin/no-next-screen error.
+        if (e && e.zhAddressUnsupported) {
+          return { state: "rejected", reason: "address_unsupported" };
         }
         throw e;
       }
@@ -1406,7 +1601,8 @@
         if (next === "processing") return { state: "processing", details: details };
         if (next === "otp") return { state: "awaiting-input", kind: "otp", details: details };
         if (next === "passkey") return { state: "rejected", reason: "passkey_unsupported" }; // passkey not supported (see toState)
-        return { state: "awaiting-user-action", kind: "id-verification", details: details, completeBefore: parseRiskCompleteBefore() };
+        rememberIdVerification();
+        return { state: "awaiting-user-action", kind: "id-verification", details: details, completeBefore: null };
       }
 
       throw new Error("withdraw/invalid-payload: unknown kind");

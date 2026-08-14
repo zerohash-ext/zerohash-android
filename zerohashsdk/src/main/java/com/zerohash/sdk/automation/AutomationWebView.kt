@@ -58,6 +58,9 @@ internal fun WebView.applyAutomationDefaults() {
         domStorageEnabled = true
         databaseEnabled = true
         mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        // Let the liveness camera preview's MediaStream <video> autoplay inline
+        // (else it stays black). iOS parity: `mediaTypesRequiringUserActionForPlayback = []`.
+        mediaPlaybackRequiresUserGesture = false
         allowFileAccess = false
         allowContentAccess = false
         allowFileAccessFromFileURLs = false
@@ -169,6 +172,38 @@ internal fun isTrustedCoinbaseHost(host: String?): Boolean {
     val h = host?.lowercase() ?: return false
     return h == "coinbase.com" || h.endsWith(".coinbase.com")
 }
+
+/**
+ * True when [host] belongs to a supported exchange. The shared origin gate for
+ * the automation WebViews. Only Coinbase today — add exchanges here as an OR so
+ * every gate stays in sync.
+ */
+internal fun isTrustedExchangeHost(host: String?): Boolean =
+    isTrustedCoinbaseHost(host)
+
+/**
+ * True when [host] is the identity/liveness provider Coinbase embeds for the
+ * withdraw ID check (Onfido). The liveness selfie/camera runs in a cross-origin
+ * `sdk.onfido.com` iframe, so its getUserMedia request arrives with the Onfido
+ * origin — not Coinbase's. Kept SEPARATE from [isTrustedCoinbaseHost] on purpose:
+ * navigation and script injection stay Coinbase-only; this host is trusted for
+ * camera/mic capture ALONE (see [isTrustedMediaCaptureHost]).
+ */
+internal fun isTrustedLivenessProviderHost(host: String?): Boolean {
+    val h = host?.lowercase() ?: return false
+    return h == "onfido.com" || h.endsWith(".onfido.com")
+}
+
+/**
+ * Origin gate for camera/mic capture in the automation WebView. Broader than
+ * [isTrustedExchangeHost] because the ID/liveness step captures inside the
+ * provider's iframe ([isTrustedLivenessProviderHost]) rather than Coinbase's own
+ * frame. Safe: the main frame is locked to Coinbase (blockOffCoinbaseNavigation +
+ * the evaluateAsync host check), so any embedded capture iframe is one Coinbase
+ * itself chose to load.
+ */
+internal fun isTrustedMediaCaptureHost(host: String?): Boolean =
+    isTrustedExchangeHost(host) || isTrustedLivenessProviderHost(host)
 
 /**
  * WebViewClient decision for whether to BLOCK a navigation to [url]: true means

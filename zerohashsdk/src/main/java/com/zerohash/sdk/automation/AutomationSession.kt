@@ -7,7 +7,6 @@ import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
-import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -83,7 +82,7 @@ internal class AutomationSession(
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean =
                 blockOffCoinbaseNavigation(url, isMainFrame = true, TAG)
         }
-        wv.webChromeClient = WebChromeClient()
+        wv.webChromeClient = MediaCaptureChromeClient(activity)
 
         val container = FrameLayout(activity)
         container.addView(wv, matchParent())
