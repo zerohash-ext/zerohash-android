@@ -62,6 +62,7 @@ internal class AutomationSession(
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JSONObject?>>()
     private var seq = 0
 
+
     suspend fun load() = withContext(Dispatchers.Main) {
         val wv = WebView(activity)
         webView = wv
@@ -123,7 +124,8 @@ internal class AutomationSession(
         pending[id] = deferred
 
         val argDecl = if (argName != null) "var $argName = $argJson;" else ""
-        val wrapped = buildPromiseWrapper(BRIDGE, id, prelude, argDecl, entryExpr)
+        val telemetryInstall = if (TelemetryRouter.collector != null) asset(TELEMETRY_INSTALL_ASSET) else ""
+        val wrapped = buildPromiseWrapper(BRIDGE, id, prelude, argDecl, entryExpr, telemetryInstall)
 
         // Refuse to run money-movement automation if the page has somehow landed off Coinbase,
         // even if a navigation slipped past the WebViewClient allowlist.
@@ -199,6 +201,13 @@ internal class AutomationSession(
     }
 
     private inner class Bridge {
+        /** Injected-realm drafts drained by the wrapper → the in-flight dispatch collector. */
+        @Suppress("UNUSED_PARAMETER")
+        @JavascriptInterface
+        fun onEvents(id: String, json: String?) {
+            TelemetryRouter.collector?.pushDraftsJson(json)
+        }
+
         @JavascriptInterface
         fun onResolve(id: String, json: String?) {
             val d = pending[id] ?: return

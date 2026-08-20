@@ -88,15 +88,58 @@ internal class AutomationBridge(
         Log.d(TAG, "inbound id=$id platform=$platform op=$operation")
 
         scope.launch {
+            // Telemetry lives here. Gate per-request on options.telemetry (or the
+            // TelemetryConfig force-on); vehicles write drafts to this collector.
+            val telemetryOn = TelemetryConfig.enabled ||
+                (request.optJSONObject("options")?.optBoolean("telemetry", false) ?: false)
+            val collector = if (telemetryOn) TelemetryCollector() else null
+            collector?.let { TelemetryRouter.collector = it }
+            val startedAt = System.currentTimeMillis()
             try {
                 val result = dispatch(platform, operation, request)
-                sendResponse(id, success = true, data = result.data, error = null, sessionId = result.sessionId)
+                val telemetry = buildTelemetry(collector, "success", id, platform, operation, request, startedAt)
+                sendResponse(id, success = true, data = result.data, error = null, sessionId = result.sessionId, telemetry = telemetry)
             } catch (e: Exception) {
                 Log.e(TAG, "operation failed id=$id op=$operation", e)
                 val msg = e.message ?: "operation failed"
-                sendResponse(id, success = false, data = null, error = msg, retryable = isRetryable(msg))
+                val telemetry = buildTelemetry(collector, "error", id, platform, operation, request, startedAt)
+                sendResponse(id, success = false, data = null, error = msg, retryable = isRetryable(msg), telemetry = telemetry)
+            } finally {
+                if (collector != null && TelemetryRouter.collector === collector) {
+                    TelemetryRouter.collector = null
+                }
             }
         }
+    }
+
+    /** Add the settle row, stamp the request-level dimensions, and return the batch
+     *  for the response (`ZeroAuthResponse.telemetry`). Null when off or empty. */
+    private fun buildTelemetry(
+        collector: TelemetryCollector?,
+        outcome: String,
+        id: String,
+        platformId: String,
+        operation: String,
+        request: JSONObject,
+        startedAt: Long,
+    ): JSONArray? {
+        if (collector == null) return null
+        collector.emitNative(settledRow(outcome, System.currentTimeMillis() - startedAt))
+        val flow = when (operation) {
+            "withdraw.start" -> "session_open"
+            "withdraw.continue" -> "session_continue"
+            "withdraw.cancel" -> "session_close"
+            else -> "single_shot"
+        }
+        val dims = TelemetryDims(
+            requestId = id,
+            platformId = platformId,
+            operation = operation,
+            zeroauthSessionId = request.optString("sessionId").ifEmpty { null },
+            flow = flow,
+        )
+        val events = collector.build(dims)
+        return if (events.length() == 0) null else events
     }
 
     /**
@@ -299,6 +342,7 @@ internal class AutomationBridge(
         error: String?,
         retryable: Boolean = false,
         sessionId: String? = null,
+        telemetry: JSONArray? = null,
     ) {
         val response = JSONObject()
             .put("id", id)
@@ -308,6 +352,10 @@ internal class AutomationBridge(
             .put("error", error ?: JSONObject.NULL)
             .put("sessionId", sessionId ?: JSONObject.NULL)
             .put("retryable", retryable)
+
+        // Telemetry rides the response (ZeroAuthResponse.telemetry); the client's
+        // onEvents sink drains it. Absent when off.
+        if (telemetry != null) response.put("telemetry", telemetry)
 
         val envelope = JSONObject()
             .put("type", RESPONSE_TYPE)

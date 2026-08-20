@@ -229,11 +229,19 @@ internal class PromiseWebViewRunner(private val activity: Activity) {
      */
     private fun evaluate(view: WebView?, script: String, prelude: String, paramsJson: String?) {
         val paramsDecl = if (paramsJson != null) "var params = $paramsJson;" else ""
-        val wrapped = buildPromiseWrapper(BRIDGE, CALL_ID, prelude, paramsDecl, script)
+        val telemetryInstall = if (TelemetryRouter.collector != null) activity.readAutomationAsset(TELEMETRY_INSTALL_ASSET) else ""
+        val wrapped = buildPromiseWrapper(BRIDGE, CALL_ID, prelude, paramsDecl, script, telemetryInstall)
         view?.evaluateJavascript(wrapped, null)
     }
 
     private inner class PromiseBridge {
+        /** Injected-realm drafts drained by the wrapper → the in-flight dispatch collector. */
+        @JavascriptInterface
+        fun onEvents(id: String, json: String?) {
+            if (id != CALL_ID) return
+            TelemetryRouter.collector?.pushDraftsJson(json)
+        }
+
         @JavascriptInterface
         fun onResolve(id: String, json: String?) {
             if (id != CALL_ID) return

@@ -220,6 +220,10 @@
   // untouched; promote to shared later if another platform needs them.
   var D = window.__zhDom;
 
+  // Telemetry breadcrumb (no-op unless telemetry is installed + enabled) — the
+  // mobile twin of the extension's pushBreadcrumb → extension_handler_phase_reached.
+  function bc(phase, note) { if (window.__zhTelemetry) window.__zhTelemetry.breadcrumb(phase, note); }
+
   function isVisible(el) {
     if (!el) return false;
     if (el.offsetParent !== null) return true;
@@ -470,12 +474,59 @@
     }
   }
 
+  // Type the address and confirm it sticks. Typing before the modal hydrates lets
+  // React clear the field, so retype on a fresh node until the value holds.
+  async function typeRecipientAddress(input, address) {
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      input.focus();
+      await typeLikeHuman(input, address);
+      await D.sleep(600); // let onChange + any post-hydration re-render settle
+      var live = document.querySelector(SEL.RECIPIENT_INPUT) || input;
+      if (String(live.value || "").trim().length > 0) return live;
+      console.warn("[withdraw] enterRecipient: input cleared after typing (attempt " + attempt + "/3) — likely typed before hydration; retrying");
+      input = live;
+    }
+    throw new Error("withdraw/recipient-input-cleared: the address kept clearing after it was typed (send modal not ready)");
+  }
+
+  // Find the clickable recipient cell for `address` (matched by data-testid, since
+  // the visible text is truncated). Returns the pressable cell, or null.
+  function findRecipientCell(address) {
+    var want = String(address).trim().toLowerCase();
+    var cells = document.querySelectorAll('[data-testid$="-cell-pressable"]');
+    for (var i = 0; i < cells.length; i++) {
+      var id = (cells[i].getAttribute("data-testid") || "").toLowerCase();
+      if (isVisible(cells[i]) && id.indexOf(want) !== -1) return cells[i];
+    }
+    var nodes = document.querySelectorAll("*");
+    for (var j = 0; j < nodes.length; j++) {
+      if (nodes[j].children.length === 0 && (nodes[j].textContent || "").trim() === String(address).trim()) {
+        return nodes[j].closest('button, [role="button"], [data-testid$="-cell-pressable"]') || nodes[j];
+      }
+    }
+    return null;
+  }
+
   async function enterRecipient(address) {
     var input = await waitForElement(SEL.RECIPIENT_INPUT, 15000);
-    await typeLikeHuman(input, address);
-    // Dropdown renders async; wait for the item by its address text, then click.
-    var item = await waitForExactText(address, 15000);
-    await humanClick(item);
+    await D.sleep(300); // brief settle so we're not typing into a still-mounting field
+    input = await typeRecipientAddress(input, address);
+
+    // Clicking the suggestion cell advances off recipientEntry. Re-query the cell
+    // before each click (a stale node swallows the press) and confirm we advanced.
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      var cell = await pollUntil(function () { return findRecipientCell(address); }, 15000,
+        "withdraw/recipient-suggestion-not-found: " + address);
+      await humanClick(cell);
+      var advanced = await pollUntil(function () {
+        var step = readActiveStep();
+        return (step && step !== "recipientEntry" && step !== "loaded") ? true : null;
+      }, 5000).catch(function () { return null; });
+      if (advanced) return;
+      console.warn("[withdraw] enterRecipient: still on recipientEntry after click (attempt " + attempt + "/2); retrying");
+    }
+    // Don't hard-throw: runSelectionPhase's detectNextScreen surfaces a precise
+    // no-next-screen diagnostic if we genuinely never advanced.
   }
 
   // Synchronous button/clickable text scan, scoped to `root`. Mirrors
@@ -741,14 +792,19 @@
 
   // Post-amount recipient-type chooser (some asset/network pairs). No-op when absent.
   async function selectRecipientTypeIfPresent(type) {
-    var step = await waitForElement(SEL.STEP_SELECT_RECIPIENT_TYPE, 10000).catch(function () { return null; });
-    if (!step || !queryVisible(SEL.STEP_SELECT_RECIPIENT_TYPE)) return;
+    // Race the chooser against the screens that replace it (Send now, travel rule,
+    // transfer details). US accounts skip the chooser, so bail if one is already up.
+    var which = await waitForAny(
+      [SEL.STEP_SELECT_RECIPIENT_TYPE, SEL.SEND_NOW, SEL.BENEFICIARY_NAME, SEL.TRANSFER_PURPOSE],
+      10000
+    );
+    if (which !== SEL.STEP_SELECT_RECIPIENT_TYPE) return;
     var selector = RECIPIENT_TYPE_OPTION[type];
     if (!selector) throw new Error("withdraw/recipient-type-option-not-found: " + type);
     // The step container mounts BEFORE its option buttons render, so a single
     // query races the mount — poll for the option, re-reading the step each time.
     var btn = await pollUntil(function () {
-      var s = queryVisible(SEL.STEP_SELECT_RECIPIENT_TYPE) || step;
+      var s = queryVisible(SEL.STEP_SELECT_RECIPIENT_TYPE);
       return s ? s.querySelector(selector) : null;
     }, 5000, "withdraw/recipient-type-option-not-found: " + type);
     await humanClick(btn);
@@ -1218,12 +1274,19 @@
     // Once a hold was seen, declare "done" only on UNAMBIGUOUS success — the weak
     // markers below must not flip a held send to "submitted" (a wrong "submitted"
     // loses a send still pending verification; a wrong hold self-corrects).
-    if (sawIdVerification()) return confirmedSuccess();
-    if (queryVisible(SEL.SEND_SUCCESS)) return true;
-    if (queryVisible(SEL.STATUS_COMPLETE_BTN)) return true;
+    // The sticky-hold branch returns early, so breadcrumb the liveness-cleared
+    // success here (the id-verification path has no past2fa:done otherwise).
+    if (sawIdVerification()) {
+      var cleared = confirmedSuccess();
+      if (cleared) bc("past2fa:done", "idv-cleared");
+      return cleared;
+    }
+    // Notes match the extension's past2fa (dom.ts) verbatim.
+    if (queryVisible(SEL.SEND_SUCCESS)) { bc("past2fa:done", "send-success"); return true; }
+    if (queryVisible(SEL.STATUS_COMPLETE_BTN)) { bc("past2fa:done", "complete-btn"); return true; }
     var overlay = document.querySelector(SEL.MODAL_OVERLAY);
-    if (!overlay) return true;
-    if (!queryVisible(SEL.MODAL_OVERLAY)) return true;
+    if (!overlay) { bc("past2fa:done", "overlay-absent"); return true; }
+    if (!queryVisible(SEL.MODAL_OVERLAY)) { bc("past2fa:done", "overlay-hidden"); return true; }
     return false;
   }
 
@@ -1237,7 +1300,7 @@
       SEL.PASSKEY_PROMPT, SEL.STEP_RISK_VERIFICATION, SEL.STEP_USER_CANCELLATION
     ];
     var which = await waitForAny(ANY_UI, 30000);
-    if (wasTransferCanceled()) return { kind: "canceled" };
+    if (wasTransferCanceled()) { bc("risk-gate:canceled"); return { kind: "canceled" }; }
     if (!which) {
       if (past2fa()) return { kind: "none" };
       throw new Error("withdraw/unknown-failure: neither success nor 2FA UI appeared");
@@ -1395,18 +1458,20 @@
     try {
       await waitForElement(SEL.SEND_SUCCESS + ", " + SEL.STATUS_COMPLETE_BTN, 60000);
     } catch (e) {
+      bc("result:timeout");
       return { status: "timeout", completeBefore: null, referenceId: null, sendUuid: null };
     }
     var committed = readCommittedSend();
-    if (committed) return committed;
+    if (committed) { bc("result:success", committed.status); return committed; }
     var headline = queryVisible(SEL.SUCCESS_HEADLINE);
     var t = headline ? getInnerText(headline).toLowerCase() : "";
     var failureKeywords = ["fail", "error", "cancel", "falh", "erro"];
     var failed = failureKeywords.some(function (kw) { return t.indexOf(kw) !== -1; });
-    return {
-      status: failed ? "failed" : (t || "success"),
-      completeBefore: null, referenceId: null, sendUuid: null
-    };
+    // Keep `t` local: the headline can embed the amount/recipient, so never return
+    // or breadcrumb it. Report a bounded status instead.
+    var status = failed ? "failed" : "success";
+    bc("result:success", status);
+    return { status: status, completeBefore: null, referenceId: null, sendUuid: null };
   }
 
   async function finalizeSubmitted(details) {
@@ -1499,7 +1564,7 @@
   async function pollFor2faResolution() {
     var deadline = Date.now() + 10000;
     while (Date.now() < deadline) {
-      if (wasTransferCanceled()) return "canceled";
+      if (wasTransferCanceled()) { bc("risk-gate:canceled"); return "canceled"; }
       if (past2fa()) return "submitted";
       if (riskIdVerificationSettled() || sawIdVerification()) return "id-verification";
       if (chooseOtpMethod()) return "otp";
@@ -1541,9 +1606,12 @@
         // Capture this send's commit response; drop any prior send's first.
         installCommitInterceptor();
         forgetCommittedSend();
+        bc("open-send-modal");
         await openSendModal();
+        bc("enter-recipient");
         await enterRecipient(params.address);
         await runSelectionPhase(params);
+        bc("enter-amount");
         await enterAmount(params.amount, params.asset);
         await selectRecipientTypeIfPresent(params.recipientType || "self-custody");
         // Self-transfer: the webapp sends transferDetails.purpose "Transfer to my
@@ -1553,9 +1621,12 @@
           params.transferDetails.purpose === "Transfer to my own account");
         await fillTravelRule(params.travelRule, { selfTransfer: isSelfTransfer });
         await fillTransferDetails(params.transferDetails);
+        bc("confirm-send");
         var details = await confirmAndSend(params.address);
         moduleState().details = details; // persist for continue()
+        bc("detect-2fa");
         var outcome = await detectAndHandle2fa();
+        bc("2fa-outcome", outcome.kind);
         if (outcome.kind === "none") return await finalizeSubmitted(details);
         return toState(outcome, details);
       } catch (e) {
@@ -1585,17 +1656,21 @@
         if (!payload.code || !/^\d{6}$/.test(payload.code)) {
           throw new Error("withdraw/invalid-payload: code (expected 6 digits)");
         }
+        bc("continue:otp");
         var accepted = await enterOtp(payload.code);
         if (!accepted) return { state: "rejected", reason: "otp_rejected" }; // retriable
         var outcome = await detectAndHandle2fa();
+        bc("2fa-outcome", outcome.kind);
         if (outcome.kind === "none") return await finalizeSubmitted(details);
         return toState(outcome, details);
       }
 
       if (payload.kind === "poll") {
-        if (wasTransferCanceled()) return { state: "rejected", reason: "transfer_canceled" };
+        bc("continue:poll");
+        if (wasTransferCanceled()) { bc("risk-gate:canceled"); return { state: "rejected", reason: "transfer_canceled" }; }
         if (past2fa()) return await finalizeSubmitted(details);
         var next = await pollFor2faResolution();
+        bc("poll-outcome", next);
         if (next === "canceled") return { state: "rejected", reason: "transfer_canceled" };
         if (next === "submitted") return await finalizeSubmitted(details);
         if (next === "processing") return { state: "processing", details: details };

@@ -97,22 +97,35 @@ internal fun WebView.applyAutomationDefaults() {
  * is a syntax error); a bare entry call is unaffected. Matches iOS, which trims the
  * same trailing chars before wrapping.
  */
+/**
+ * @param telemetryInstall the telemetry.js installer, or "" when off. Non-empty
+ *  installs the buffer and drains its drafts to native on settle (never breaks it).
+ */
 internal fun buildPromiseWrapper(
     bridge: String,
     callId: String,
     prelude: String,
     argDecl: String,
     rawExpr: String,
+    telemetryInstall: String = "",
 ): String {
     val expr = rawExpr.trimEnd(';', '\n', '\r', ' ', '\t')
+    val on = telemetryInstall.isNotEmpty()
+    val install = if (on) "$telemetryInstall\nwindow.__zhTelemetry.enable(true);" else ""
+    val drain = if (on) {
+        """try { if (window.__zhTelemetry && $bridge.onEvents) $bridge.onEvents("$callId", JSON.stringify(window.__zhTelemetry.drain())); } catch (e) {}"""
+    } else {
+        ""
+    }
     return """
         (function () {
           try {
+            $install
             $prelude
             $argDecl
             Promise.resolve(($expr)).then(
-              function (r) { $bridge.onResolve("$callId", JSON.stringify(r === undefined ? null : r)); },
-              function (e) { $bridge.onReject("$callId", String((e && e.message) || e)); }
+              function (r) { $drain $bridge.onResolve("$callId", JSON.stringify(r === undefined ? null : r)); },
+              function (e) { $drain $bridge.onReject("$callId", String((e && e.message) || e)); }
             );
           } catch (e) {
             $bridge.onReject("$callId", String((e && e.message) || e));

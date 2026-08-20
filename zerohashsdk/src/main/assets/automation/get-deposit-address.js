@@ -53,6 +53,10 @@
   var realisticClick = D.realisticClick;
   var findButtonByText = D.findButtonByText;
   var clickableAncestor = D.clickableAncestor;
+
+  // Telemetry breadcrumb (no-op unless telemetry is installed + enabled) — the
+  // mobile twin of the extension's pushBreadcrumb.
+  function bc(phase, note) { if (window.__zhTelemetry) window.__zhTelemetry.breadcrumb(phase, note); }
   // waitUntil/waitFor now take an explicit deadline; wrap to pass this run's DEADLINE.
   function waitUntil(find, timeoutMs) { return D.waitUntil(find, timeoutMs, DEADLINE); }
   function waitFor(sel, timeoutMs) { return D.waitFor(sel, timeoutMs, DEADLINE); }
@@ -224,9 +228,13 @@
 
   async function run() {
     if (!ASSET) throw new Error("missing_asset");
+    bc("open-modal");
     await openReceiveModal();
+    bc("select-asset", ASSET);
     await pickAsset();
+    bc("select-network", NETWORK);
     await pickNetworkIfNeeded();
+    bc("await-address");
 
     // Race loop: poll for the rendered address, amount-entry step, or deadline.
     // Guard so we fill+submit the amount exactly once: the amount-entry step can

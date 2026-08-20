@@ -199,6 +199,10 @@ async function replay(spec) {
 // This script assumes any Cloudflare challenge has ALREADY cleared: the native
 // runner gates evaluation on challenge clearance (waitForChallengeClearance) so
 // it survives Cloudflare's post-solve page reload. So here we just replay.
+// Telemetry breadcrumb (no-op unless telemetry is installed + enabled) — the
+// mobile twin of the extension's pushBreadcrumb.
+function bc(phase, note) { if (window.__zhTelemetry) window.__zhTelemetry.breadcrumb(phase, note); }
+
 async function run(params, queries) {
   const ops = (params && Array.isArray(params.ops) && params.ops.length)
     ? params.ops
@@ -208,6 +212,7 @@ async function run(params, queries) {
   for (const op of ops) {
     const spec = queries && queries[op];
     if (!spec) throw new Error("BALANCES_INDETERMINATE: " + op + " — could not load a complete response");
+    bc("replay", op);
     const replayed = await replay(spec);
     // The account display currency we requested for this op — applied to every
     // row so crypto and cash are labeled consistently (e.g. all USD).
