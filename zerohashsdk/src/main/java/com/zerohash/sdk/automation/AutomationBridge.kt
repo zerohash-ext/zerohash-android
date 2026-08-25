@@ -19,8 +19,8 @@ import java.util.UUID
  * Routes scraping-bridge requests from the SDK's UI WebView to the native
  * platform flows, and posts replies back over the **exact same wire contract**
  * the iOS bridge and the browser-extension transport use. The web side
- * (`@zerohash/hooks` `use-scraping-client`) is platform-agnostic and posts to
- * both `NativeIOS` and `NativeAndroid`, so no web change is needed.
+ * The web side is platform-agnostic and posts to both `NativeIOS` and
+ * `NativeAndroid`, so no web change is needed.
  *
  * Wire contract (canonical: connect-ios `Envelope.swift` / `contract.ts`):
  * - Request (web → native): `NativeAndroid.postMessage(json)` where json is a

@@ -59,6 +59,20 @@ class WebViewActivity : AppCompatActivity(),
         // still-pending flow as a user cancel. Lets a real redirect callback land first.
         private const val OAUTH_CANCEL_GRACE_MS = 500L
 
+        // Reported to the host when the device's WebView is too old to enforce the
+        // bridge's per-frame origin check. Maps to ZerohashError.WebViewError.
+        private const val ERROR_CODE_WEBVIEW_UNSUPPORTED = "webview_unsupported"
+
+        // Generic-event mirror of onLoaded, kept for hosts that read it off
+        // onEvent. Same identifier zerohash-ios emits.
+        private const val EVENT_APP_LOADED = "APP_LOADED"
+
+        // Host-less schemes the page may legitimately load: each carries its
+        // payload inline (bundled images, fonts, object URLs) or is the empty
+        // document, and none reaches the network, so the host allow-list has
+        // nothing to say about them.
+        private val INERT_SCHEMES = setOf("data", "blob", "about")
+
         private data class HandlerEntry(
             val handler: CallbackHandler,
             val createdAt: Long
@@ -139,6 +153,29 @@ class WebViewActivity : AppCompatActivity(),
                 return
             }
 
+            // The bridge requires per-frame origin filtering. Without it the only
+            // alternative is `addJavascriptInterface`, which injects into every
+            // frame and can be validated no more precisely than "the top frame is
+            // ours" — no use when an allow-listed third-party subframe is the
+            // thing we're guarding against. This bridge drives credential
+            // automation and the withdraw flow, so refuse rather than downgrade.
+            if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+                Log.e(TAG, "WEB_MESSAGE_LISTENER unsupported; refusing to start the session")
+                callbackHandler?.handleError(
+                    ERROR_CODE_WEBVIEW_UNSUPPORTED,
+                    "This device's Android System WebView is too old to run the zerohash SDK. " +
+                        "Please update it from the Play Store and try again.",
+                    null
+                )
+                // finish() lands in onDestroy, which does not notify the host, and
+                // onClose is what the documented host pattern uses to drop its
+                // session reference (`fundSession = null`). Without this the host
+                // holds a session that never closes and present() refuses forever.
+                callbackHandler?.handleClose()
+                finish()
+                return
+            }
+
             isDarkMode = shouldUseDarkMode(theme)
             if (BuildConfig.DEBUG) Log.d(TAG, "Dark mode: $isDarkMode")
 
@@ -152,6 +189,10 @@ class WebViewActivity : AppCompatActivity(),
             setupUI(url, jwt, environment, theme, webHost)
         } catch (e: Exception) {
             Log.e(TAG, "Error in onCreate", e)
+            // Same reasoning as the unsupported-WebView bail above: if we got far
+            // enough to resolve the handler, the host has to be told the flow is
+            // gone or it can never present again. No-op when we failed earlier.
+            callbackHandler?.handleClose()
             finish()
         }
     }
@@ -199,10 +240,6 @@ class WebViewActivity : AppCompatActivity(),
 
             container.addView(webView)
 
-            // Pre-seed the cached URL so the legacy @JavascriptInterface origin
-            // check passes for messages that arrive during initial load.
-            messageHandler.onPageLoaded(url)
-
             if (BuildConfig.DEBUG) Log.d(TAG, "Loading URL")
             webView.loadUrl(url)
         } catch (e: Exception) {
@@ -232,30 +269,22 @@ class WebViewActivity : AppCompatActivity(),
             saveFormData = false
         }
 
-        // Per-frame origin filtering via WebMessageListener when supported — a
-        // cross-origin frame inside the loaded page cannot reach the bridge.
-        // Fall back to @JavascriptInterface (top-frame URL check) otherwise.
+        // Per-frame origin filtering via WebMessageListener — a cross-origin frame
+        // inside the loaded page cannot reach the bridge. This is the only bridge
+        // path; onCreate refuses the session when the feature is unavailable, so
+        // there is no `addJavascriptInterface` fallback to inject into every frame.
         val allowedOrigins = setOf(messageHandler.targetOrigin)
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
-            WebViewCompat.addWebMessageListener(
-                webView,
-                WebViewMessageHandler.INTERFACE_NAME,
-                allowedOrigins
-            ) { _, message, _, _, _ ->
-                // No isMainFrame gate: the fund app runs inside the `fund-iframe`
-                // subframe, and the scraping bridge posts to NativeAndroid from
-                // there. `allowedOrigins` already restricts the listener to the
-                // trusted host, so a same-origin subframe is safe; a cross-origin
-                // frame never reaches this callback.
-                messageHandler.handleVerifiedMessage(message.data ?: return@addWebMessageListener)
-            }
-        } else {
-            Log.w(
-                TAG,
-                "WebMessageListener unsupported on this WebView build; falling back to " +
-                    "@JavascriptInterface with top-frame origin check"
-            )
-            webView.addJavascriptInterface(messageHandler, WebViewMessageHandler.INTERFACE_NAME)
+        WebViewCompat.addWebMessageListener(
+            webView,
+            WebViewMessageHandler.INTERFACE_NAME,
+            allowedOrigins
+        ) { _, message, _, _, _ ->
+            // No isMainFrame gate: the fund app runs inside the `fund-iframe`
+            // subframe, and the scraping bridge posts to NativeAndroid from
+            // there. `allowedOrigins` already restricts the listener to the
+            // trusted host, so a same-origin subframe is safe; a cross-origin
+            // frame never reaches this callback.
+            messageHandler.handleVerifiedMessage(message.data ?: return@addWebMessageListener)
         }
 
         webView.webViewClient = object : WebViewClient() {
@@ -268,7 +297,6 @@ class WebViewActivity : AppCompatActivity(),
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                messageHandler.onPageLoaded(url)
                 if (BuildConfig.DEBUG) Log.d(TAG, "Page loaded")
             }
 
@@ -278,14 +306,25 @@ class WebViewActivity : AppCompatActivity(),
              * not in [allowList]. Top-level navigation is already blocked by
              * [shouldOverrideUrlLoading] above, so this catches programmatic
              * resource loads initiated by the page JS.
+             *
+             * Host-less URLs are judged by scheme instead: [INERT_SCHEMES] carry
+             * their payload inline and reach no network, so the app's own inline
+             * assets keep working, while anything else without a host is blocked
+             * rather than waved through for lack of a host to check.
              */
             override fun shouldInterceptRequest(
                 view: WebView?,
                 request: android.webkit.WebResourceRequest?
             ): android.webkit.WebResourceResponse? {
-                val host = request?.url?.host
-                if (host != null && !allowList.contains(host)) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Blocked resource load: $host")
+                val url = request?.url
+                val host = url?.host
+                val blocked = if (host == null) {
+                    url?.scheme?.lowercase() !in INERT_SCHEMES
+                } else {
+                    !allowList.contains(host)
+                }
+                if (blocked) {
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Blocked resource load: $url")
                     return android.webkit.WebResourceResponse(
                         "text/plain", "UTF-8",
                         java.io.ByteArrayInputStream(ByteArray(0))
@@ -346,6 +385,11 @@ class WebViewActivity : AppCompatActivity(),
 
     override fun onContentReady() {
         if (BuildConfig.DEBUG) Log.d(TAG, "Content ready")
+        callbackHandler?.handleLoaded()
+        // Also emitted as a generic event, matching zerohash-ios: hosts that read
+        // APP_LOADED off onEvent before onLoaded existed keep working, and the two
+        // platforms report the same thing.
+        callbackHandler?.handleEvent(EVENT_APP_LOADED, null)
     }
 
     override fun onNavigate(url: String, mobileTarget: String?) {

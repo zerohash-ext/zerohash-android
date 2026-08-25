@@ -22,6 +22,16 @@
             android:layout_gravity="center"
             android:layout_marginBottom="8dp" />
 
+        <!-- Dev mode: shows the floating SDK event log over the flow. Off by
+             default so the app can be demoed with no debug UI. -->
+        <CheckBox
+            android:id="@+id/cbDevMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Dev mode (floating event log)"
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp" />
+
         <!-- SDK source banner (populated from BuildConfig.ZEROHASH_SDK_SOURCE) -->
         <TextView
             android:id="@+id/tvSdkSource"

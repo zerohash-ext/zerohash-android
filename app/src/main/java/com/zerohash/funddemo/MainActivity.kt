@@ -25,6 +25,8 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "ZerohashDemo"
+        private const val PREFS = "demo-prefs"
+        private const val KEY_DEV_MODE = "devModeEnabled"
         private const val DEMO_JWT = "your-jwt-token-here"
     }
 
@@ -39,6 +41,8 @@ class MainActivity : AppCompatActivity() {
     private fun setupUI() {
         supportActionBar?.subtitle = BuildConfig.ZEROHASH_SDK_SOURCE
         binding.tvSdkSource.text = "SDK source: ${BuildConfig.ZEROHASH_SDK_SOURCE}"
+
+        setupDevMode()
 
         binding.etJwt.setText(DEMO_JWT)
 
@@ -72,24 +76,33 @@ class MainActivity : AppCompatActivity() {
                 theme = theme,
                 callbacks = object : FundCallbacks {
                     override fun onClose() {
-                        addLog("Session closed")
+                        addLog("onClose")
                         showToast("Session closed")
                         fundSession = null
                     }
 
                     override fun onError(error: ZerohashError) {
                         Log.e(TAG, "Fund error: ${error.message}")
-                        addLog("Error: ${error.message}")
+                        addLog("onError: $error")
                         showToast("Error: ${error.message}")
                     }
 
                     override fun onEvent(event: GenericEvent) {
-                        addLog("Event: ${event.type}")
+                        addLog("onEvent: $event")
                     }
 
-                    override fun onFundCompleted(event: FundCompletedEvent) {
-                        addLog("Fund completed: ${event.transactionId} (${event.assetSymbol} ${event.amount})")
+                    override fun onLoaded() {
+                        addLog("onLoaded")
+                    }
+
+                    override fun onCompleted(event: FundCompletedEvent) {
+                        addLog("onCompleted: $event")
                         showToast("Funding completed")
+                    }
+
+                    override fun onFailed(event: FundCompletedEvent) {
+                        addLog("onFailed: $event")
+                        showToast("Funding failed")
                     }
                 }
             )
@@ -119,24 +132,33 @@ class MainActivity : AppCompatActivity() {
                 theme = theme,
                 callbacks = object : CryptoWithdrawalsCallbacks {
                     override fun onClose() {
-                        addLog("Session closed")
+                        addLog("onClose")
                         showToast("Session closed")
                         cryptoWithdrawalsSession = null
                     }
 
                     override fun onError(error: ZerohashError) {
                         Log.e(TAG, "Crypto Withdrawals error: ${error.message}")
-                        addLog("Error: ${error.message}")
+                        addLog("onError: $error")
                         showToast("Error: ${error.message}")
                     }
 
                     override fun onEvent(event: GenericEvent) {
-                        addLog("Event: ${event.type}")
+                        addLog("onEvent: $event")
                     }
 
-                    override fun onWithdrawalCompleted(event: CryptoWithdrawalsCompletedEvent) {
-                        addLog("Withdrawal completed: ${event.withdrawalRequestId}")
+                    override fun onLoaded() {
+                        addLog("onLoaded")
+                    }
+
+                    override fun onCompleted(event: CryptoWithdrawalsCompletedEvent) {
+                        addLog("onCompleted: $event")
                         showToast("Withdrawal completed")
+                    }
+
+                    override fun onFailed(event: CryptoWithdrawalsCompletedEvent) {
+                        addLog("onFailed: $event")
+                        showToast("Withdrawal failed")
                     }
                 }
             )
@@ -171,6 +193,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun addLog(message: String) {
+        // Mirrored to Logcat because the SDK runs in its own Activity, which covers
+        // this one: the on-screen log is only readable after the flow closes, so
+        // `adb logcat -s $TAG` is the only way to watch events as they fire.
+        Log.d(TAG, message)
+        DevPanel.log(message)
         runOnUiThread {
             val currentLog = binding.tvLog.text.toString()
             val timestamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
@@ -186,8 +213,33 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Returning from the system overlay-permission screen: attach now that it
+        // may have been granted. Never requests — that would bounce straight back
+        // out to settings and trap the app in a loop.
+        if (binding.cbDevMode.isChecked) DevPanel.setEnabled(this, true)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         fundSession?.cancel()
+        DevPanel.detach()
+    }
+
+    /**
+     * Dev mode gates the floating event log. Off by default and persisted, so the
+     * app can be demoed with no debug UI on screen.
+     */
+    private fun setupDevMode() {
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        binding.cbDevMode.isChecked = prefs.getBoolean(KEY_DEV_MODE, false)
+        DevPanel.setEnabled(this, binding.cbDevMode.isChecked)
+
+        binding.cbDevMode.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean(KEY_DEV_MODE, checked).apply()
+            // Only the toggle may send the user to the permission screen.
+            DevPanel.setEnabled(this, checked, requestPermission = true)
+        }
     }
 }

@@ -12,7 +12,7 @@ import com.zerohash.sdk.BuildConfig
  *
  * ## When this is used
  *
- * The Fund flow embeds the shared integrations-flow ("auth as a feature")
+ * The Fund flow embeds the shared "auth as a feature"
  * deposit-via-external-source experience. When the user links an external
  * funding source, the web app sends a `navigate` message with
  * `mobileTarget = "oauth"`; the SDK opens the authorization URL in Chrome

@@ -50,8 +50,8 @@
             NOTE on the scheme: `connectsdk-oauth://callback` is dictated by the
             backend (connection-service) configured redirect URI shared with the
             web SDK / connect-ios / connect-android. Fund embeds the shared
-            integrations-flow ("auth as a feature") deposit-via-external-source
-            flow, which uses this same OAuth path. Keep this scheme in sync with
+            "auth as a feature" deposit-via-external-source flow, which uses
+            this same OAuth path. Keep this scheme in sync with
             whatever redirect URI connection-service is configured to send for
             the zerohash Fund SDK — changing it here without a matching backend
             change breaks the OAuth round-trip.

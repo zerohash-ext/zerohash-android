@@ -15,9 +15,9 @@ enum class ZerohashApp {
 /**
  * Theme configuration for the SDK UI.
  *
- * The embedded zerohash mobile web app ([apps/mobile]) expects the web theme
- * vocabulary `'auto' | 'light' | 'dark'`, so [SYSTEM] maps to `"auto"` (the web
- * app reads the OS preference for `auto`).
+ * The embedded zerohash mobile web app expects the web theme vocabulary
+ * `'auto' | 'light' | 'dark'`, so [SYSTEM] maps to `"auto"` (the web app reads
+ * the OS preference for `auto`).
  */
 enum class Theme {
     LIGHT,
@@ -59,14 +59,13 @@ enum class Environment {
      *
      * Single source of truth shared by the session base-URL builders and the
      * WebView's trusted-origin check. This is the host the WebView loads —
-     * the zerohash-branded `apps/mobile` deployment (the same build artifact is
-     * also served from the legacy `sdk.connect.xyz` / `sdk.sandbox.connect.xyz`
+     * the zerohash-branded mobile web app (the same build artifact is also
+     * served from the legacy `sdk.connect.xyz` / `sdk.sandbox.connect.xyz`
      * hosts). Its `#fund` route internally embeds the Fund web component + iframe.
      *
-     * NOTE: on mobile, external-source OAuth (integrations-flow) returns through
-     * the native bridge (Custom Tabs -> connectsdk-oauth://callback), NOT the
-     * web popup path in `use-oauth-integration/utils.ts` — so that web origin
-     * allowlist does not gate this host. The real OAuth dependency is that the
+     * NOTE: on mobile, external-source OAuth returns through the native bridge
+     * (Custom Tabs -> connectsdk-oauth://callback), NOT the web popup path — so
+     * that web origin allowlist does not gate this host. The real OAuth dependency is that the
      * connection-service redirect URI (`connectsdk-oauth://callback`) is
      * configured for the Fund SDK (backend), independent of the web host.
      */
@@ -135,6 +134,10 @@ sealed class ZerohashError : Exception() {
     companion object {
         /**
          * Convert Fund web error codes ([ErrorPayload.errorCode]) to typed errors.
+         *
+         * `webview_unsupported` is the exception: it originates natively, not from
+         * the web app, when the device's WebView cannot enforce the bridge's
+         * per-frame origin check. Kept here so hosts get one typed error surface.
          */
         fun fromWebError(code: String?, message: String): ZerohashError {
             return when (code) {
@@ -146,6 +149,7 @@ sealed class ZerohashError : Exception() {
                 "client_error" -> ClientError(message)
                 "config_error" -> ConfigurationError(message)
                 "oauth_error" -> OAuthError(message)
+                "webview_unsupported" -> WebViewError(message)
                 else -> UnknownError(message)
             }
         }
@@ -154,6 +158,9 @@ sealed class ZerohashError : Exception() {
 
 /**
  * Base callback interface for all Zerohash apps.
+ *
+ * Names match the zerohash web SDK's callback contract so a partner integrating
+ * on web and native writes the same handlers.
  */
 interface AppCallbacks {
     /**
@@ -162,9 +169,19 @@ interface AppCallbacks {
     fun onClose()
 
     /**
-     * Called when an error occurs during the session.
+     * Called when an SDK or request error occurs (network, auth, validation,
+     * config). A flow's own terminal failure is *not* an error — it arrives on
+     * the flow's `onFailed` with the transaction's details instead.
      */
     fun onError(error: ZerohashError)
+
+    /**
+     * Called once the flow has finished loading and is ready — the point at
+     * which the loading indicator gives way to the flow's first screen.
+     *
+     * Default no-op so existing hosts need not implement it.
+     */
+    fun onLoaded() {}
 
     /**
      * Called for generic events from the web application.
@@ -179,7 +196,16 @@ internal interface CallbackHandler {
     fun handleClose()
     fun handleError(code: String?, message: String, data: JSONObject?)
     fun handleEvent(type: String, data: JSONObject?)
+    fun handleLoaded() {}
     fun handleDeposit(data: JSONObject?) {}
+
+    /**
+     * Status of a deposit funded from an external source, posted as
+     * `deposit-status`. Separate from [handleDeposit], which means the deposit
+     * completed. Default no-op so flows without an external-source path (crypto
+     * withdrawals) need not implement it.
+     */
+    fun handleDepositStatus(data: JSONObject?) {}
 
     /**
      * Crypto Withdrawals completion, posted by the mobile web app as a
@@ -187,6 +213,13 @@ internal interface CallbackHandler {
      * need not implement it.
      */
     fun handleCryptoWithdrawal(data: JSONObject?) {}
+
+    /**
+     * Terminal *failed* transaction, posted as `transaction-failed`. Shared by
+     * both flows — a session only ever runs one, and the payload is that flow's
+     * failure data.
+     */
+    fun handleTransactionFailed(data: JSONObject?) {}
 }
 
 /**

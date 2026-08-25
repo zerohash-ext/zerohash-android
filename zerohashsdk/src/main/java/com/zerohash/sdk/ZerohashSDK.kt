@@ -34,7 +34,7 @@ object ZerohashSDK {
      *         override fun onClose() { /* handle close */ }
      *         override fun onError(error: ZerohashError) { /* handle error */ }
      *         override fun onEvent(event: GenericEvent) { /* handle event */ }
-     *         override fun onFundCompleted(event: FundCompletedEvent) { /* funded */ }
+     *         override fun onCompleted(event: FundCompletedEvent) { /* funded */ }
      *     }
      * )
      * session.present(activity)
@@ -76,7 +76,7 @@ object ZerohashSDK {
      *         override fun onClose() { /* handle close */ }
      *         override fun onError(error: ZerohashError) { /* handle error */ }
      *         override fun onEvent(event: GenericEvent) { /* handle event */ }
-     *         override fun onWithdrawalCompleted(event: CryptoWithdrawalsCompletedEvent) { /* done */ }
+     *         override fun onCompleted(event: CryptoWithdrawalsCompletedEvent) { /* done */ }
      *     }
      * )
      * session.present(activity)

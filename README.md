@@ -26,7 +26,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.zerohash:zerohash-android:1.0.3")
+    implementation("com.zerohash:zerohash-android:1.2.0")
 }
 ```
 
@@ -55,10 +55,13 @@ class MainActivity : AppCompatActivity() {
                 override fun onClose() { fundSession = null }
                 override fun onError(error: ZerohashError) { /* show error */ }
                 override fun onEvent(event: GenericEvent) { /* analytics */ }
-                override fun onFundCompleted(event: FundCompletedEvent) {
+                override fun onLoaded() { /* WebView content is ready */ }
+                override fun onCompleted(event: FundCompletedEvent) {
                     // event.transactionId, event.assetSymbol, event.amount,
                     // event.depositAddress, event.network, event.fundId,
                     // event.notionalAmount
+                }
+                override fun onFailed(event: FundCompletedEvent) {
                 }
             }
         )
@@ -126,8 +129,13 @@ class MainActivity : AppCompatActivity() {
                 override fun onClose() { withdrawalsSession = null }
                 override fun onError(error: ZerohashError) { /* show error */ }
                 override fun onEvent(event: GenericEvent) { /* analytics */ }
-                override fun onWithdrawalCompleted(event: CryptoWithdrawalsCompletedEvent) {
-                    // event.withdrawalRequestId, event.rawData
+                override fun onLoaded() { /* WebView content is ready */ }
+                override fun onCompleted(event: CryptoWithdrawalsCompletedEvent) {
+                    // event.withdrawalRequestId, event.status,
+                    // event.statusDetails, event.assetId, event.networkId,
+                    // event.amount, event.rawData
+                }
+                override fun onFailed(event: CryptoWithdrawalsCompletedEvent) {
                 }
             }
         )
@@ -143,6 +151,57 @@ class MainActivity : AppCompatActivity() {
 
 The JWT must carry the permissions for the flow you present — Fund and Crypto
 Withdrawals are minted with different permission sets.
+
+## Callbacks
+
+Names match the zerohash web SDK, so the same handler names apply whether you
+integrate on web, Android or iOS — the flow is identified by the session you
+configure, not by the callback name. Both flows share the core set; `onDeposit` exists on Fund only,
+matching the web SDK.
+
+| Callback | When it fires |
+| --- | --- |
+| `onCompleted(event)` | The transaction succeeded. `event` is `FundCompletedEvent` or `CryptoWithdrawalsCompletedEvent` |
+| `onFailed(event)` | The transaction reached a terminal **failed** state. Same event type as `onCompleted` — which callback fired tells you the outcome |
+| `onError(error)` | An SDK or request error (network, auth, validation, config) |
+| `onLoaded()` | The flow's WebView content is ready (the web component mounted). Earlier than the web SDK's `onLoaded` — see the note below |
+| `onDeposit(event)` | **Fund only.** Status of a deposit funded from an external source. **Not terminal** — see below |
+| `onEvent(event)` | Lifecycle/analytics events, with the original identifier on `event.type` |
+| `onClose()` | The user closed the flow, or `cancel()` was called |
+
+`onLoaded` fires when the WebView content is ready, which is **earlier** than the
+web SDK's `onLoaded` (that one fires once the flow has booted and rendered). The
+web layer's own ready signal is not currently forwarded over the bridge, so do not
+treat this as "the user can see the flow" — dismissing a loading spinner here can
+uncover a still-blank WebView.
+
+Fund reports a deposit two ways, depending on how the money arrived — matching the
+web SDK exactly.
+
+A **manual or Pay** deposit is terminal, and reaches `onCompleted`/`onFailed` with
+all seven `FundCompletedEvent` fields (`transactionId`, `fundId`, `assetSymbol`,
+`amount`, `depositAddress`, `network`, `notionalAmount`).
+
+A deposit funded from an **external source** (the "connect an account" path) reaches
+`onDeposit` **only**, with a `FundDepositEvent`. That callback is a *status*, not an
+outcome: it also fires while account matching is verifying, and can arrive more than
+once for the same deposit. Read the outcome off `event.status` (`PROCESSED`,
+`FAILED`, `PENDING`) or the derived `event.success`, and use
+`event.accountMatchingStatus` / `event.accountMatchingReason` for a name-mismatch
+failure — that reason is the only explanation available anywhere in the stack. Do
+not treat the call itself as completion.
+
+A failed transaction is a flow outcome, **not** an error. Implement both if you
+need to cover every unsuccessful path. `onFailed`, `onLoaded` and `onDeposit` have no-op
+defaults, so override them only if you use them.
+
+The two flows differ in one respect. A failed **deposit** (Fund) invokes
+`onFailed` only. A failed **crypto withdrawal** invokes `onFailed` *and*
+`onError`, for backwards compatibility with hosts written before `onFailed`
+existed — `onError` was that flow's only failure signal. Build against `onFailed`
+in both cases; if you implement both callbacks, guard against counting a failed
+withdrawal twice. The compatibility `onError` is deprecated and will be removed in
+a future major version.
 
 ## Session API
 

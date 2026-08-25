@@ -1,39 +1,38 @@
 package com.zerohash.sdk.ui
 
 import android.util.Log
-import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import org.json.JSONObject
 import com.zerohash.sdk.BuildConfig
 import com.zerohash.sdk.CallbackHandler
-import java.net.URI
 
 /**
  * JavaScript↔Kotlin communication bridge.
  *
- * Two reception paths, both routed through [dispatchMessage]:
+ * One reception path: [WebViewActivity] registers this handler via
+ * `WebViewCompat.addWebMessageListener` with [targetOrigin] as the only
+ * allowed-origin rule. Origin filtering happens **per-frame** inside the WebView
+ * runtime, so a cross-origin frame cannot reach [handleVerifiedMessage] even if
+ * it tries to call `NativeAndroid.postMessage`.
  *
- * 1. **Preferred — WebMessageListener (API 24+ with up-to-date WebView).**
- *    [WebViewActivity] registers this handler via
- *    `WebViewCompat.addWebMessageListener` with [targetOrigin] as the only
- *    allowed-origin rule. Origin filtering happens **per-frame** inside the
- *    WebView runtime, so a cross-origin frame cannot reach the handler even if
- *    it tries to call `NativeAndroid.postMessage`. Messages arriving on this
- *    path are flagged origin-verified.
- *
- * 2. **Fallback — `@JavascriptInterface` (older WebView builds).** The
- *    [postMessage] method below is exposed on the WebView via
- *    `addJavascriptInterface`. In this mode the SDK can only validate the
- *    **top-frame** URL (cached on the main thread via [onPageLoaded]).
+ * There is deliberately no `@JavascriptInterface` fallback for WebViews without
+ * `WEB_MESSAGE_LISTENER`. `addJavascriptInterface` injects into *every* frame,
+ * and the top-frame URL is the only thing the SDK could check from there — which
+ * says nothing about the frame that actually called. Since this bridge drives
+ * credential automation and the withdraw flow, [WebViewActivity] refuses the
+ * session on such devices instead. Matches zerohash-ios, which validates
+ * `frameInfo.securityOrigin` per message.
  *
  * The [allowedHost] drives both the inbound origin check and the outbound
  * `window.postMessage` target — it is set per-session from [Environment.webHost]
  * so sandbox sessions talk to `sdk-cdn.cert.zerohash.com` and production
  * sessions talk to `sdk-cdn.zerohash.com`.
  *
- * The bridge contract matches the zerohash mobile web app (`apps/mobile`):
- * inbound (web→native) `page-ready`, `navigate`, `close`, `error`, `event`,
- * `deposit`; outbound (native→web) `jwt`, `config`.
+ * The bridge contract matches the zerohash mobile web app:
+ * inbound (web→native) `page-ready`, `content-ready`, `navigate`, `close`,
+ * `error`, `event`, `deposit`, `deposit-status`, `crypto-withdrawal`,
+ * `transaction-failed`;
+ * outbound (native→web) `jwt`, `config`.
  */
 internal class WebViewMessageHandler(
     private val webView: WebView,
@@ -52,30 +51,10 @@ internal class WebViewMessageHandler(
         private const val ROLE_HOST = "zeroauth-host"
 
         /**
-         * Fallback constant kept for backward-compat with ProGuard rules and
-         * tests that don't supply an explicit environment. Prefer
-         * [WebViewMessageHandler.targetOrigin] for runtime use.
+         * Fallback constant kept for tests that don't supply an explicit
+         * environment. Prefer [WebViewMessageHandler.targetOrigin] at runtime.
          */
         const val TARGET_ORIGIN = "https://sdk-cdn.zerohash.com"
-
-        /**
-         * Strict origin check used by the legacy [postMessage]
-         * `@JavascriptInterface` path.
-         *
-         * Requires the page URL's scheme to be `https` and its host to match
-         * [allowedHost] exactly (case-insensitive).
-         */
-        internal fun isAllowedOrigin(url: String?, allowedHost: String): Boolean {
-            if (url.isNullOrBlank()) return false
-            return try {
-                val uri = URI(url)
-                val scheme = uri.scheme?.lowercase()
-                val host = uri.host?.lowercase()
-                scheme == "https" && host == allowedHost.lowercase()
-            } catch (e: Exception) {
-                false
-            }
-        }
     }
 
     /**
@@ -111,30 +90,6 @@ internal class WebViewMessageHandler(
     var delegate: Delegate? = null
 
     /**
-     * Cached URL of the last fully-loaded top-frame page.
-     */
-    @Volatile
-    private var currentPageUrl: String? = null
-
-    internal fun onPageLoaded(url: String?) {
-        currentPageUrl = url
-    }
-
-    /**
-     * Legacy `@JavascriptInterface` entry point. Reached only when the device's
-     * WebView does not support per-frame origin filtering via
-     * `WebViewCompat.addWebMessageListener`. Runs on a background thread.
-     */
-    @JavascriptInterface
-    fun postMessage(message: String) {
-        if (!isAllowedOrigin(currentPageUrl, allowedHost)) {
-            Log.w(TAG, "Message rejected: origin not allowed")
-            return
-        }
-        dispatchMessage(message)
-    }
-
-    /**
      * Entry point for messages whose origin has already been verified by the
      * WebView framework (WebMessageListener with allowedOriginRules).
      */
@@ -168,7 +123,9 @@ internal class WebViewMessageHandler(
                 "error" -> handleError(data)
                 "event" -> handleEvent(data)
                 "deposit" -> handleDeposit(data)
+                "deposit-status" -> handleDepositStatus(data)
                 "crypto-withdrawal" -> handleCryptoWithdrawal(data)
+                "transaction-failed" -> handleTransactionFailed(data)
                 else -> Log.w(TAG, "Unknown message type: $type")
             }
         } catch (e: Exception) {
@@ -216,7 +173,15 @@ internal class WebViewMessageHandler(
 
         webView.post {
             callbackHandler.handleError(code, message, data)
-            delegate?.onTerminalError()
+            // A failed crypto withdrawal deliberately emits `transaction-failed`
+            // AND `error`, the latter kept only for hosts written before `onFailed`
+            // existed. Halting rendering on that duplicate would freeze the
+            // withdrawal-failed screen the user is looking at, so once the flow has
+            // reported a terminal failure of its own, treat a following error as the
+            // compatibility echo rather than a new fatal one.
+            if (!terminalTransactionFailureSeen) {
+                delegate?.onTerminalError()
+            }
         }
     }
 
@@ -238,11 +203,44 @@ internal class WebViewMessageHandler(
         }
     }
 
+    /**
+     * Status of a deposit funded from an external source, posted as
+     * `deposit-status`. Its own message type because [handleDeposit] already means
+     * the deposit *completed* — a status there would report that the money arrived
+     * while the deposit is still verifying, or has failed. Non-terminal: it can
+     * arrive more than once per deposit.
+     */
+    private fun handleDepositStatus(data: JSONObject?) {
+        webView.post {
+            callbackHandler.handleDepositStatus(data)
+        }
+    }
+
     private fun handleCryptoWithdrawal(data: JSONObject?) {
         webView.post {
             callbackHandler.handleCryptoWithdrawal(data)
         }
     }
+
+    /**
+     * Terminal *failed* transaction, posted as `transaction-failed`. Deliberately
+     * not routed through [handleError]: this is the flow's own outcome and carries
+     * the transaction's details, so it reaches `onFailed` rather than `onError`
+     * (and must not trip `onTerminalError`).
+     */
+    private fun handleTransactionFailed(data: JSONObject?) {
+        terminalTransactionFailureSeen = true
+        webView.post {
+            callbackHandler.handleTransactionFailed(data)
+        }
+    }
+
+    /**
+     * Set once the flow has reported a terminal failure of its own. Suppresses the
+     * rendering halt for the compatibility `error` that crypto-withdrawals sends
+     * straight after it — see [handleError].
+     */
+    private var terminalTransactionFailureSeen = false
 
     private fun sendJWT() {
         val jwtMessage = JSONObject().apply {

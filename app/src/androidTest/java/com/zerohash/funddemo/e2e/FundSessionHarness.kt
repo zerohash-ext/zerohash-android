@@ -42,7 +42,7 @@ class RecordingCallbacks : FundCallbacks {
         events.add(event)
     }
 
-    override fun onFundCompleted(event: FundCompletedEvent) {
+    override fun onCompleted(event: FundCompletedEvent) {
         completions.add(event)
     }
 }

@@ -1,6 +1,6 @@
 # Zerohash SDK ProGuard Rules
 # The library ships un-minified; these rules document the public API surface and
-# the JavaScript bridge that must always be kept.
+# the WebView bridge surface.
 
 # Keep public API
 -keep public class com.zerohash.sdk.ZerohashSDK { *; }
@@ -9,10 +9,9 @@
 -keep public class com.zerohash.sdk.fund.FundTypes** { *; }
 -keep public interface com.zerohash.sdk.** { *; }
 
-# Keep JavaScript interface
--keepclassmembers class com.zerohash.sdk.ui.WebViewMessageHandler {
-    @android.webkit.JavascriptInterface <methods>;
-}
+# No @JavascriptInterface rule: the bridge is registered through
+# WebViewCompat.addWebMessageListener, which resolves the handler in Kotlin rather
+# than by injected member name, so nothing here needs keeping for JS to reach.
 
 # Keep WebView callbacks for the SDK's own clients only.
 -keepclassmembers class com.zerohash.sdk.** extends android.webkit.WebViewClient {

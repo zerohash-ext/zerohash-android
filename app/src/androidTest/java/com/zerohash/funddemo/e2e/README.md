@@ -37,7 +37,7 @@ all frames; Espresso-Web's Atom API cannot reach into the subframe.
 
 Since we can't sniff WebView network traffic from instrumentation, assertions
 are UI + native-callback based: `RecordingCallbacks` captures every
-`onError` / `onEvent` / `onFundCompleted` / `onClose` the SDK fires.
+`onError` / `onEvent` / `onCompleted` / `onClose` the SDK fires.
 
 ## Credentials
 
