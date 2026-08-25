@@ -40,6 +40,18 @@ class ZerohashAllowList(val hosts: List<String>) {
                     "relay.dynamicauth.com",
                     "iconic.dynamic-static-assets.com",
                     "www.dynamic.xyz",
+                    // WalletConnect v2 / Reown endpoints brokered by Dynamic:
+                    // relay (WSS + HTTPS), verify (attestation), pulse
+                    // (analytics), rpc (multichain), on both .org and .com
+                    // mirrors that WC clients round-robin between.
+                    "relay.walletconnect.org",
+                    "relay.walletconnect.com",
+                    "verify.walletconnect.org",
+                    "verify.walletconnect.com",
+                    "pulse.walletconnect.org",
+                    "rpc.walletconnect.org",
+                    // Reown wallet catalog — required for the wallet list to render.
+                    "api.web3modal.org",
                     // TON Connect wallet registry, required for TON wallets.
                     "config.ton.org",
                 ),
