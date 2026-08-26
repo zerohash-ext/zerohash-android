@@ -42,6 +42,15 @@ class AutomationBridgeLogicTest {
     }
 
     @Test
+    fun fundsNotAvailable_isTerminal() {
+        assertTrue(
+            endsSession(
+                JSONObject().put("state", "rejected").put("reason", "funds_not_available"),
+            ),
+        )
+    }
+
+    @Test
     fun awaitingAndProcessing_areNonTerminal() {
         assertFalse(endsSession(JSONObject().put("state", "awaiting-input")))
         assertFalse(endsSession(JSONObject().put("state", "awaiting-user-action")))

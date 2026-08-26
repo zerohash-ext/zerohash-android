@@ -86,6 +86,8 @@
   var PENDING_AMOUNT_LABEL = "Amount";
   var PENDING_TO_LABEL = "To";
 
+  var STEP_WBL_HOLD = '[data-testid="step-wblHoldStep-active"]';
+
   // Terminal "Transfer canceled" screen
   var STEP_USER_CANCELLATION = '[data-testid="step-userCancellationSuccess-active"]';
 
@@ -176,6 +178,7 @@
     STEP_PREVIOUS_TRANSFER: STEP_PREVIOUS_TRANSFER,
     PENDING_AMOUNT_LABEL: PENDING_AMOUNT_LABEL,
     PENDING_TO_LABEL: PENDING_TO_LABEL,
+    STEP_WBL_HOLD: STEP_WBL_HOLD,
     STEP_USER_CANCELLATION: STEP_USER_CANCELLATION,
     CURRENCY_INPUT: CURRENCY_INPUT,
     MAX_BUTTON: MAX_BUTTON,
@@ -455,6 +458,16 @@
     };
   }
 
+  function fundsNotAvailableError() {
+    var e = new Error("withdraw/funds-not-available: Coinbase is blocking sends (balance on temporary hold)");
+    e.zhFundsNotAvailable = true;
+    return e;
+  }
+
+  function isHoldModalPresent() {
+    return !!queryVisible(SEL.STEP_WBL_HOLD);
+  }
+
   // After the send trigger Coinbase normally shows the recipient field — unless a
   // prior transfer is still pending identity verification, in which case it shows
   // the blocking "Review pending transfer" screen instead. Race the two so we
@@ -469,6 +482,7 @@
     for (;;) {
       if (document.querySelector(SEL.RECIPIENT_INPUT)) return;
       if (queryVisible(SEL.STEP_PREVIOUS_TRANSFER)) throw pendingTransferError(readPendingTransfer());
+      if (isHoldModalPresent()) throw fundsNotAvailableError();
       if (Date.now() >= deadline) throw new Error("withdraw/recipient-not-found: " + SEL.RECIPIENT_INPUT);
       await D.sleep(150);
     }
@@ -1599,6 +1613,47 @@
     };
   }
 
+  function fundsNotAvailableRejection() {
+    return { state: "rejected", reason: "funds_not_available" };
+  }
+
+  async function continueInner(payload) {
+    var details = moduleState().details || emptyDetails();
+    if (!payload || typeof payload !== "object" || !("kind" in payload)) {
+      throw new Error("withdraw/invalid-payload: kind");
+    }
+
+    if (payload.kind === "otp") {
+      if (!payload.code || !/^\d{6}$/.test(payload.code)) {
+        throw new Error("withdraw/invalid-payload: code (expected 6 digits)");
+      }
+      bc("continue:otp");
+      var accepted = await enterOtp(payload.code);
+      if (!accepted) return { state: "rejected", reason: "otp_rejected" }; // retriable
+      var outcome = await detectAndHandle2fa();
+      bc("2fa-outcome", outcome.kind);
+      if (outcome.kind === "none") return await finalizeSubmitted(details);
+      return toState(outcome, details);
+    }
+
+    if (payload.kind === "poll") {
+      bc("continue:poll");
+      if (wasTransferCanceled()) { bc("risk-gate:canceled"); return { state: "rejected", reason: "transfer_canceled" }; }
+      if (past2fa()) return await finalizeSubmitted(details);
+      var next = await pollFor2faResolution();
+      bc("poll-outcome", next);
+      if (next === "canceled") return { state: "rejected", reason: "transfer_canceled" };
+      if (next === "submitted") return await finalizeSubmitted(details);
+      if (next === "processing") return { state: "processing", details: details };
+      if (next === "otp") return { state: "awaiting-input", kind: "otp", details: details };
+      if (next === "passkey") return { state: "rejected", reason: "passkey_unsupported" }; // passkey not supported (see toState)
+      rememberIdVerification();
+      return { state: "awaiting-user-action", kind: "id-verification", details: details, completeBefore: null };
+    }
+
+    throw new Error("withdraw/invalid-payload: unknown kind");
+  }
+
   window.__zhWithdraw = {
     // Drive Send → forms → preview → "Send now", then detect & return the 2FA state.
     start: async function (params) {
@@ -1642,45 +1697,25 @@
         if (e && e.zhAddressUnsupported) {
           return { state: "rejected", reason: "address_unsupported" };
         }
+        if (e && e.zhFundsNotAvailable) {
+          return fundsNotAvailableRejection();
+        }
+        if (isHoldModalPresent()) {
+          return fundsNotAvailableRejection();
+        }
         throw e;
       }
     },
     // OTP/poll follow-up on the SAME live session.
     continue: async function (payload) {
-      var details = moduleState().details || emptyDetails();
-      if (!payload || typeof payload !== "object" || !("kind" in payload)) {
-        throw new Error("withdraw/invalid-payload: kind");
-      }
-
-      if (payload.kind === "otp") {
-        if (!payload.code || !/^\d{6}$/.test(payload.code)) {
-          throw new Error("withdraw/invalid-payload: code (expected 6 digits)");
+      try {
+        return await continueInner(payload);
+      } catch (e) {
+        if (isHoldModalPresent()) {
+          return fundsNotAvailableRejection();
         }
-        bc("continue:otp");
-        var accepted = await enterOtp(payload.code);
-        if (!accepted) return { state: "rejected", reason: "otp_rejected" }; // retriable
-        var outcome = await detectAndHandle2fa();
-        bc("2fa-outcome", outcome.kind);
-        if (outcome.kind === "none") return await finalizeSubmitted(details);
-        return toState(outcome, details);
+        throw e;
       }
-
-      if (payload.kind === "poll") {
-        bc("continue:poll");
-        if (wasTransferCanceled()) { bc("risk-gate:canceled"); return { state: "rejected", reason: "transfer_canceled" }; }
-        if (past2fa()) return await finalizeSubmitted(details);
-        var next = await pollFor2faResolution();
-        bc("poll-outcome", next);
-        if (next === "canceled") return { state: "rejected", reason: "transfer_canceled" };
-        if (next === "submitted") return await finalizeSubmitted(details);
-        if (next === "processing") return { state: "processing", details: details };
-        if (next === "otp") return { state: "awaiting-input", kind: "otp", details: details };
-        if (next === "passkey") return { state: "rejected", reason: "passkey_unsupported" }; // passkey not supported (see toState)
-        rememberIdVerification();
-        return { state: "awaiting-user-action", kind: "id-verification", details: details, completeBefore: null };
-      }
-
-      throw new Error("withdraw/invalid-payload: unknown kind");
     },
     // Click Coinbase's "Cancel transfer"; reports whether it was found and clicked.
     cancel: async function () {
