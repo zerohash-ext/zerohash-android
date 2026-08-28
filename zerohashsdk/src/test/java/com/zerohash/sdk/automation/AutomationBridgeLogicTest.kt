@@ -65,6 +65,28 @@ class AutomationBridgeLogicTest {
         assertTrue(endsSession(JSONObject()))
     }
 
+    @Test
+    fun poll_doesNotNeedPagePresented() {
+        assertFalse(needsPagePresented(JSONObject().put("kind", "poll").toString()))
+    }
+
+    @Test
+    fun otp_needsPagePresented() {
+        assertTrue(
+            needsPagePresented(
+                JSONObject().put("kind", "otp").put("code", "123456").toString(),
+            ),
+        )
+    }
+
+    @Test
+    fun unknownOrMissingKind_needsPagePresented() {
+        assertTrue(needsPagePresented(JSONObject().put("kind", "wat").toString()))
+        assertTrue(needsPagePresented(JSONObject().toString()))
+        assertTrue(needsPagePresented(""))
+        assertTrue(needsPagePresented("not json"))
+    }
+
     // ── isRetryable: BALANCES_INDETERMINATE prefix, CHALLENGE_UNSOLVED exact ──
 
     @Test

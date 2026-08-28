@@ -277,8 +277,11 @@ internal class AutomationBridge(
     private suspend fun withdrawContinue(platform: WithdrawFlow, sessionId: String?, payloadJson: String): OpResult {
         val ws = sessions[sessionId]
             ?: throw PlatformException("no active withdraw session")
-        // Bring the page back on screen (overlay up) before driving it.
-        resumeScraping(ws)
+        if (needsPagePresented(payloadJson)) {
+            resumeScraping(ws)
+        } else {
+            ws.session.restartTimeout()
+        }
         val state = try {
             platform.continueWithdraw(ws.session, payloadJson)
         } catch (e: Exception) {
@@ -413,6 +416,11 @@ internal fun endsSession(state: JSONObject): Boolean = when (state.optString("st
     "awaiting-input", "awaiting-user-action", "processing" -> false
     else -> true
 }
+
+/** Mirrors iOS `ContinueWithdrawPayload.needsPagePresented`: a poll only reads the
+ *  DOM, so it must not re-cover a page the user is acting on. Anything else acts. */
+internal fun needsPagePresented(payloadJson: String): Boolean =
+    runCatching { JSONObject(payloadJson).optString("kind") }.getOrNull() != "poll"
 
 /** Mirrors iOS exactly: BALANCES_INDETERMINATE is matched as a prefix, and
  *  CHALLENGE_UNSOLVED as the whole message — nothing else is retryable. */
