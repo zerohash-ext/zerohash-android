@@ -54,6 +54,7 @@ class ZerohashAllowList(val hosts: List<String>) {
                     "api.web3modal.org",
                     // TON Connect wallet registry, required for TON wallets.
                     "config.ton.org",
+                    "=dynamic-static-assets.com",
                 ),
             )
     }
@@ -65,7 +66,11 @@ class ZerohashAllowList(val hosts: List<String>) {
         val lowered = host.lowercase()
         return hosts.any { entry ->
             val target = entry.lowercase()
-            lowered == target || lowered.endsWith(".$target")
+            if (target.startsWith("=")) {
+                lowered == target.substring(1)
+            } else {
+                lowered == target || lowered.endsWith(".$target")
+            }
         }
     }
 }
