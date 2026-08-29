@@ -16,12 +16,16 @@ import com.zerohash.sdk.cryptowithdrawals.ZerohashCryptoWithdrawalsSession
 import com.zerohash.sdk.fund.FundCallbacks
 import com.zerohash.sdk.fund.FundCompletedEvent
 import com.zerohash.sdk.fund.ZerohashFundSession
+import com.zerohash.sdk.fundwithdrawals.FundWithdrawalsCallbacks
+import com.zerohash.sdk.fundwithdrawals.FundWithdrawalsCompletedEvent
+import com.zerohash.sdk.fundwithdrawals.ZerohashFundWithdrawalsSession
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private var fundSession: ZerohashFundSession? = null
     private var cryptoWithdrawalsSession: ZerohashCryptoWithdrawalsSession? = null
+    private var fundWithdrawalsSession: ZerohashFundWithdrawalsSession? = null
 
     companion object {
         private const val TAG = "ZerohashDemo"
@@ -52,6 +56,10 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnCryptoWithdrawals.setOnClickListener {
             startCryptoWithdrawals()
+        }
+
+        binding.btnFundWithdrawals.setOnClickListener {
+            startFundWithdrawals()
         }
 
         binding.btnClearLog.setOnClickListener {
@@ -171,6 +179,56 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun startFundWithdrawals() {
+        val jwt = resolveJwt()
+        val environment = selectedEnvironment()
+        val theme = selectedTheme()
+
+        addLog("SDK source: ${BuildConfig.ZEROHASH_SDK_SOURCE}")
+        addLog("Environment: ${environment.toWebValue()}")
+        addLog("Theme: ${theme.toWebValue()}")
+
+        try {
+            addLog("Starting Fund Withdrawals session...")
+            fundWithdrawalsSession = ZerohashSDK.configureFundWithdrawals(
+                jwt = jwt,
+                environment = environment,
+                theme = theme,
+                callbacks = object : FundWithdrawalsCallbacks {
+                    override fun onClose() {
+                        addLog("Session closed")
+                        showToast("Session closed")
+                        fundWithdrawalsSession = null
+                    }
+
+                    override fun onError(error: ZerohashError) {
+                        Log.e(TAG, "Fund Withdrawals error: ${error.message}")
+                        addLog("Error: ${error.message}")
+                        showToast("Error: ${error.message}")
+                    }
+
+                    override fun onEvent(event: GenericEvent) {
+                        addLog("Event: ${event.type}")
+                    }
+
+                    override fun onCompleted(event: FundWithdrawalsCompletedEvent) {
+                        addLog(
+                            "Fund withdrawal completed: ${event.externalAccountId} " +
+                                "(${event.assetSymbol} ${event.amount})"
+                        )
+                        showToast("Fund withdrawal completed")
+                    }
+                }
+            )
+            fundWithdrawalsSession?.present(this)
+            addLog("Fund Withdrawals session presented")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start Fund Withdrawals", e)
+            addLog("Exception: ${e.message}")
+            showToast("Failed to start: ${e.message}")
+        }
+    }
+
     private fun resolveJwt(): String {
         val jwt = binding.etJwt.text.toString().trim()
         return if (jwt.isBlank() || jwt == DEMO_JWT) {
@@ -223,7 +281,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // Cancel every flow, not just Fund — only one runs at a time, but the
+        // host cannot know which, and a missed cancel leaks the session's
+        // callback handler.
         fundSession?.cancel()
+        cryptoWithdrawalsSession?.cancel()
+        fundWithdrawalsSession?.cancel()
         DevPanel.detach()
     }
 

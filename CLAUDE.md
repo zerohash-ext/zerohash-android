@@ -42,8 +42,10 @@ SDK's `prod`/`cert` and renders the Fund web component + iframe.
 ### Bridge protocol (matches `apps/mobile`)
 
 - **web → native** (`window.NativeAndroid.postMessage`): `page-ready`,
-  `navigate`, `close`, `error` (`{errorCode, reason}`), `event`
-  (`{...data, eventType}`), `deposit` (Fund completion — `FundCompletedData`).
+  `content-ready`, `navigate`, `close`, `error` (`{errorCode, reason}`), `event`
+  (`{...data, eventType}`), `deposit` (Fund completion — `FundCompletedData`),
+  `crypto-withdrawal` (Crypto Withdrawals completion), `fund-withdrawal`
+  (Fund Withdrawals completion — `FundWithdrawalsCompletedData`).
 - **native → web** (`window.postMessage`): `jwt` (`{token, env}`), `config`
   (`{theme}`).
 

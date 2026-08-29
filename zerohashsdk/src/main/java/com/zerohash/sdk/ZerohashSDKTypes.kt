@@ -9,7 +9,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 enum class ZerohashApp {
     FUND,
-    CRYPTO_WITHDRAWALS
+    CRYPTO_WITHDRAWALS,
+    FUND_WITHDRAWALS
 }
 
 /**
@@ -215,11 +216,20 @@ internal interface CallbackHandler {
     fun handleCryptoWithdrawal(data: JSONObject?) {}
 
     /**
-     * Terminal *failed* transaction, posted as `transaction-failed`. Shared by
-     * both flows — a session only ever runs one, and the payload is that flow's
-     * failure data.
+     * Terminal *failed* transaction, posted as `transaction-failed`. Emitted by
+     * Fund and Crypto Withdrawals only — a session runs one flow, and the payload
+     * is that flow's failure data. Fund Withdrawals has no such message.
      */
     fun handleTransactionFailed(data: JSONObject?) {}
+
+    /**
+     * Fund Withdrawals completion, posted by the mobile web app as a
+     * `fund-withdrawal` message. A separate channel from `crypto-withdrawal`
+     * because the payload shape differs (a resolved `externalAccountId` rather
+     * than a `withdrawalRequestId`). Default no-op so the other flows need not
+     * implement it.
+     */
+    fun handleFundWithdrawal(data: JSONObject?) {}
 }
 
 /**

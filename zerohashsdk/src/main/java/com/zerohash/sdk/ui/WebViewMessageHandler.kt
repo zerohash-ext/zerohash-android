@@ -31,7 +31,7 @@ import com.zerohash.sdk.CallbackHandler
  * The bridge contract matches the zerohash mobile web app:
  * inbound (web→native) `page-ready`, `content-ready`, `navigate`, `close`,
  * `error`, `event`, `deposit`, `deposit-status`, `crypto-withdrawal`,
- * `transaction-failed`;
+ * `fund-withdrawal`, `transaction-failed`;
  * outbound (native→web) `jwt`, `config`.
  */
 internal class WebViewMessageHandler(
@@ -125,6 +125,7 @@ internal class WebViewMessageHandler(
                 "deposit" -> handleDeposit(data)
                 "deposit-status" -> handleDepositStatus(data)
                 "crypto-withdrawal" -> handleCryptoWithdrawal(data)
+                "fund-withdrawal" -> handleFundWithdrawal(data)
                 "transaction-failed" -> handleTransactionFailed(data)
                 else -> Log.w(TAG, "Unknown message type: $type")
             }
@@ -219,6 +220,12 @@ internal class WebViewMessageHandler(
     private fun handleCryptoWithdrawal(data: JSONObject?) {
         webView.post {
             callbackHandler.handleCryptoWithdrawal(data)
+        }
+    }
+
+    private fun handleFundWithdrawal(data: JSONObject?) {
+        webView.post {
+            callbackHandler.handleFundWithdrawal(data)
         }
     }
 

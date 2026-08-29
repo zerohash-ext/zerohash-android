@@ -1,9 +1,10 @@
 # zerohash-android
 
 Kotlin SDK that embeds zerohash flows into a native Android app — **Fund**
-(account funding / pay-to-settle) and **Crypto Withdrawals** (withdraw crypto to
-an external address). It renders the zerohash mobile web app inside a hardened
-`WebView` and bridges it to a typed Kotlin API.
+(account funding / pay-to-settle), **Crypto Withdrawals** (withdraw crypto to an
+address chosen in-flow) and **Fund Withdrawals** (withdraw fiat to crypto).
+It renders the zerohash mobile web app inside a hardened `WebView` and bridges
+it to a typed Kotlin API.
 
 | | |
 | --- | --- |
@@ -26,7 +27,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.zerohash:zerohash-android:1.2.0")
+    implementation("com.zerohash:zerohash-android:1.3.0")
 }
 ```
 
@@ -82,8 +83,8 @@ Only `jwt` and `callbacks` are required. `environment` defaults to `PRODUCTION`
 
 ## Environment
 
-`Environment` selects which zerohash backend the flow runs against. Both
-`configureFund` and `configureCryptoWithdrawals` take it as an optional parameter.
+`Environment` selects which zerohash backend the flow runs against. Every
+`configure*` factory takes it as an optional parameter.
 
 | Value | Backend host | Use for |
 | --- | --- | --- |
@@ -149,20 +150,75 @@ class MainActivity : AppCompatActivity() {
 }
 ```
 
-The JWT must carry the permissions for the flow you present — Fund and Crypto
-Withdrawals are minted with different permission sets.
+The JWT must carry the permissions for the flow you present — each flow is minted
+with a different permission set.
+
+## Quick start — Fund Withdrawals
+
+Withdraws to a **pre-linked** destination: the payout account is resolved from
+the `external_account_id` claim in the JWT, so there is no destination picker in
+the flow. Use `configureCryptoWithdrawals` instead when the user should choose
+the address in-flow.
+
+```kotlin
+import com.zerohash.sdk.ZerohashSDK
+import com.zerohash.sdk.ZerohashError
+import com.zerohash.sdk.Environment
+import com.zerohash.sdk.GenericEvent
+import com.zerohash.sdk.Theme
+import com.zerohash.sdk.fundwithdrawals.FundWithdrawalsCallbacks
+import com.zerohash.sdk.fundwithdrawals.FundWithdrawalsCompletedEvent
+import com.zerohash.sdk.fundwithdrawals.ZerohashFundWithdrawalsSession
+
+class MainActivity : AppCompatActivity() {
+
+    private var fundWithdrawalsSession: ZerohashFundWithdrawalsSession? = null
+
+    private fun openFundWithdrawals(jwt: String) {
+        fundWithdrawalsSession = ZerohashSDK.configureFundWithdrawals(
+            jwt = jwt,                              // required; must carry external_account_id
+            environment = Environment.PRODUCTION,   // optional; or Environment.SANDBOX
+            theme = Theme.SYSTEM,                   // optional (default)
+            callbacks = object : FundWithdrawalsCallbacks {
+                override fun onClose() { fundWithdrawalsSession = null }
+                override fun onError(error: ZerohashError) { /* show error */ }
+                override fun onEvent(event: GenericEvent) { /* analytics */ }
+                override fun onCompleted(event: FundWithdrawalsCompletedEvent) {
+                    // event.externalAccountId, event.assetSymbol, event.amount,
+                    // event.rawData
+                }
+            }
+        )
+        fundWithdrawalsSession?.present(this)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        fundWithdrawalsSession?.cancel()
+    }
+}
+```
+
+Only `onClose`, `onError`, `onEvent` and `onCompleted` are required; `onLoaded`
+has a no-op default, so override it only if you use it. See
+[Callbacks](#callbacks) for the shared set.
+
+There is **no `onFailed`** on this flow, unlike Fund and Crypto Withdrawals: the
+web route does not emit a terminal failure message for it, so the callback could
+never fire. Request and configuration errors arrive on `onError`.
 
 ## Callbacks
 
 Names match the zerohash web SDK, so the same handler names apply whether you
 integrate on web, Android or iOS — the flow is identified by the session you
-configure, not by the callback name. Both flows share the core set; `onDeposit` exists on Fund only,
-matching the web SDK.
+configure, not by the callback name. All three flows share the core set;
+`onDeposit` exists on Fund only and `onFailed` on Fund and Crypto Withdrawals
+only, matching the web SDK.
 
 | Callback | When it fires |
 | --- | --- |
-| `onCompleted(event)` | The transaction succeeded. `event` is `FundCompletedEvent` or `CryptoWithdrawalsCompletedEvent` |
-| `onFailed(event)` | The transaction reached a terminal **failed** state. Same event type as `onCompleted` — which callback fired tells you the outcome |
+| `onCompleted(event)` | The transaction succeeded. `event` is `FundCompletedEvent`, `CryptoWithdrawalsCompletedEvent` or `FundWithdrawalsCompletedEvent` |
+| `onFailed(event)` | **Fund and Crypto Withdrawals only.** The transaction reached a terminal **failed** state. Same event type as `onCompleted` — which callback fired tells you the outcome |
 | `onError(error)` | An SDK or request error (network, auth, validation, config) |
 | `onLoaded()` | The flow's WebView content is ready (the web component mounted). Earlier than the web SDK's `onLoaded` — see the note below |
 | `onDeposit(event)` | **Fund only.** Status of a deposit funded from an external source. **Not terminal** — see below |
@@ -195,7 +251,7 @@ A failed transaction is a flow outcome, **not** an error. Implement both if you
 need to cover every unsuccessful path. `onFailed`, `onLoaded` and `onDeposit` have no-op
 defaults, so override them only if you use them.
 
-The two flows differ in one respect. A failed **deposit** (Fund) invokes
+The flows differ in how a failure reaches you. A failed **deposit** (Fund) invokes
 `onFailed` only. A failed **crypto withdrawal** invokes `onFailed` *and*
 `onError`, for backwards compatibility with hosts written before `onFailed`
 existed — `onError` was that flow's only failure signal. Build against `onFailed`
@@ -203,10 +259,14 @@ in both cases; if you implement both callbacks, guard against counting a failed
 withdrawal twice. The compatibility `onError` is deprecated and will be removed in
 a future major version.
 
+**Fund Withdrawals** has no `onFailed` at all: the web route emits no terminal
+failure message for it, so every unsuccessful path — request, configuration or
+otherwise — arrives on `onError`.
+
 ## Session API
 
-Both `ZerohashFundSession` and `ZerohashCryptoWithdrawalsSession` expose the
-same lifecycle:
+`ZerohashFundSession`, `ZerohashCryptoWithdrawalsSession` and
+`ZerohashFundWithdrawalsSession` all expose the same lifecycle:
 
 | Member | Description |
 | --- | --- |
