@@ -13,14 +13,8 @@
   var STEP_ACTIVE = '[data-testid^="step-"][data-testid$="-active"]';
 
   // Send modal entry + recipient
-  var QUICK_ACTION_SEND = '[data-testid="quick-action-send"]';
-  var TRANSFER_DROPDOWN_BUTTON = '[data-testid="transfer-dropdown-button"]';
   var TRANSACTIONS_TAB = 'button[data-testid="Transactions-Tab"]';
-  var TRANSFER_DROPDOWN = 'div[class*="cds-dropdown"]';
-  var TRANSFER_DROPDOWN_BUTTON_IN_MENU = TRANSFER_DROPDOWN + ' button';
   // Advance mobile: Transactions tab → global-actions CTA → BottomDrawer transfer
-  var GLOBAL_ACTIONS_CTA_BUTTON = "div[data-testid='global-actions-cta-wrapper'] button";
-  var BOTTOM_DRAWER_BUTTON = "div[class*='BottomDrawer'] button";
   var RECIPIENT_INPUT = '[data-testid="recipient-search-input"]';
 
   // Conditional recipient-type chooser
@@ -143,13 +137,7 @@
   // is available to the driver functions ported in later steps.
   var SEL = {
     STEP_ACTIVE: STEP_ACTIVE,
-    QUICK_ACTION_SEND: QUICK_ACTION_SEND,
-    TRANSFER_DROPDOWN_BUTTON: TRANSFER_DROPDOWN_BUTTON,
     TRANSACTIONS_TAB: TRANSACTIONS_TAB,
-    TRANSFER_DROPDOWN: TRANSFER_DROPDOWN,
-    TRANSFER_DROPDOWN_BUTTON_IN_MENU: TRANSFER_DROPDOWN_BUTTON_IN_MENU,
-    GLOBAL_ACTIONS_CTA_BUTTON: GLOBAL_ACTIONS_CTA_BUTTON,
-    BOTTOM_DRAWER_BUTTON: BOTTOM_DRAWER_BUTTON,
     RECIPIENT_INPUT: RECIPIENT_INPUT,
     STEP_SELECT_RECIPIENT_TYPE: STEP_SELECT_RECIPIENT_TYPE,
     SELF_CUSTODY_OPTION: SELF_CUSTODY_OPTION,
@@ -383,63 +371,20 @@
     return null;
   }
 
-  // Desktop shows a direct "Send" quick-action; mobile collapses it into a
-  // "Transfer" dropdown; Coinbase Advance uses a two-click dropdown. Detect
-  // which UI is active, then click through to the recipient field.
-  async function openSendModal() {
-    var trigger = await pollUntil(function () {
-      return queryVisible(SEL.QUICK_ACTION_SEND)
-        || queryVisible(SEL.TRANSFER_DROPDOWN_BUTTON)
-        || queryVisible(SEL.TRANSACTIONS_TAB)
-        || D.findButtonByText("Transfer");
-    }, 15000, "withdraw/send-trigger-not-found");
-
-    // The Advance UI surfaces either the transfer dropdown directly or, on
-    // mobile, a Transactions tab that must be opened first — openSendModalAdvance
-    // handles the tab. The standard UI shows the quick-action "Send"/"Transfer".
-    if (trigger.getAttribute("data-testid") === "transfer-dropdown-button"
-        || trigger.getAttribute("data-testid") === "Transactions-Tab") {
-      await openSendModalAdvance();
-    } else {
-      await openSendModalStandard();
-    }
-  }
-
-  async function openSendModalStandard() {
-    var triggerButton = await pollUntil(function () {
-      return queryVisible(SEL.QUICK_ACTION_SEND) || D.findButtonByText("Transfer");
-    }, 15000, "withdraw/send-trigger-standard-modal-not-found");
-    await humanClick(triggerButton);
-
-    // After "Transfer", the layout either surfaces a menu/sheet with a
-    // "Send crypto" option, or jumps straight to the recipient field — and the
-    // container differs (desktop role="menu" vs mobile sheet). So don't depend
-    // on the container: look for the "Send crypto" option anywhere; click it if
-    // it appears, otherwise fall through to the recipient wait.
-    if (triggerButton.tagName === "BUTTON" && (triggerButton.textContent || "").trim() === "Transfer") {
-      var sendCrypto = await waitForButtonByText("Send crypto", { match: "contains", timeoutMs: 4000 })
-        .catch(function () { return null; });
-      if (sendCrypto) await humanClick(sendCrypto);
-    }
-
+  // Primary entry. The session loads https://www.coinbase.com/send directly
+  // (Coinbase.SEND_URL), which opens with the send flow already mounted — so the
+  // normal path is just "wait for the recipient step", never a click-through.
+  //
+  // Entering at /send instead of /home is what keeps the dashboard's intermittent
+  // promo banner out of the way: it could overlay the Send/Transfer controls and
+  // stall openSendModal for its full budget on a page that looked idle.
+  //
+  // No click-through fallback: it would hide a /send that stopped mounting.
+  async function enterSendFlow() {
     await awaitRecipientOrPendingBlock();
+    bc("send-entry", "deep-link");
   }
 
-  async function openSendModalAdvance() {
-    var transactionsTab = queryVisible(SEL.TRANSACTIONS_TAB);
-    await humanClick(transactionsTab);
-    var dropdownBtn = await waitForElement(SEL.GLOBAL_ACTIONS_CTA_BUTTON, 5000);
-    await humanClick(dropdownBtn);
-    // Wait for the first button to appear, then settle before querying all.
-    var transferButton = await waitForElement(SEL.BOTTOM_DRAWER_BUTTON);
-    await humanDelay(200);
-    await humanClick(transferButton);
-    await awaitRecipientOrPendingBlock();
-  }
-
-  // Tagged error carrying a blocking prior transfer's details. Thrown from
-  // awaitRecipientOrPendingBlock and converted to a rejected/pending_transfer
-  // state by `start`'s catch.
   function pendingTransferError(details) {
     var e = new Error("withdraw/pending-transfer: a prior transfer needs verification before sending again");
     e.zhPendingTransfer = details;
@@ -1226,14 +1171,15 @@
     return null;
   }
 
-  // True only when the risk container has rendered a SETTLED sub-state. The bare
-  // container is not enough — it mounts before the buttons exist (scam-warning
-  // intro), and deciding on that transitional frame is a misread.
+  // Settled sub-state only: the bare container mounts before its content.
+  // RISK_SCAM_INTRO included — Coinbase blocks on that screen. Reported as
+  // id-verification, which is the wrong copy; needs its own kind on the web.
   function riskIdVerificationSettled() {
     if (!queryVisible(SEL.STEP_RISK_VERIFICATION)) return false;
     return !!(queryVisible(SEL.RISK_START_CHALLENGE) ||
               queryVisible(SEL.RISK_STEP_IDV) ||
-              queryVisible(SEL.RISK_IDV_FAILED));
+              queryVisible(SEL.RISK_IDV_FAILED) ||
+              queryVisible(SEL.RISK_SCAM_INTRO));
   }
 
   // Sticky hold: the risk screen does NOT advance when the check clears elsewhere,
@@ -1266,13 +1212,12 @@
     return null;
   }
 
-  // Prefer a typed-code method (SMS first, then TOTP) the host can relay over a
-  // passkey. Returns true if it switched to an OTP method.
-  function chooseOtpMethod() {
+  // SMS before TOTP, matching auth-choose-2fa-method.js in login.
+  async function chooseOtpMethod() {
     var sms = queryVisible(SEL.TWO_FACTOR_SMS);
-    if (sms) { sms.click(); return true; }
+    if (sms) { await humanClick(sms); return true; }
     var totp = queryVisible(SEL.TWO_FACTOR_TOTP);
-    if (totp) { totp.click(); return true; }
+    if (totp) { await humanClick(totp); return true; }
     return false;
   }
 
@@ -1330,7 +1275,7 @@
       rememberIdVerification();
       return { kind: "id-verification", completeBefore: null };
     }
-    if (chooseOtpMethod()) return { kind: "otp" };
+    if (await chooseOtpMethod()) return { kind: "otp" };
     if (queryVisible(SEL.PASSKEY_PROMPT)) return { kind: "passkey" };
     if (isOtpScreen()) return { kind: "otp" };
     return { kind: "processing" };
@@ -1556,9 +1501,27 @@
   // Type the code. true = accepted (past2fa flipped or the code screen advanced);
   // false = Coinbase cleared the field (bad code). Throws on timeout (a hang).
   async function enterOtp(code) {
-    await waitForAny([SEL.OTP_INPUT, SEL.OTP_CONTAINER, SEL.IDENTITY_ACCESS_WRAPPER], 15000);
+    await waitForAny([SEL.OTP_INPUT, SEL.OTP_CONTAINER, SEL.IDENTITY_ACCESS_WRAPPER,
+                      SEL.TWO_FACTOR_SMS, SEL.TWO_FACTOR_TOTP], 15000);
     if (past2fa()) return true;
-    var input = await waitForElement(SEL.OTP_INPUT, 15000);
+    // The earlier click runs with the page not presented, so don't rely on it.
+    // Only re-click when the field is absent: doing it with the code screen up
+    // navigates away from it.
+    var choseMethod = false;
+    if (!queryVisible(SEL.OTP_INPUT) && await chooseOtpMethod()) {
+      choseMethod = true;
+      await D.sleep(300);
+    }
+    var input;
+    try {
+      input = await waitForElement(SEL.OTP_INPUT, 15000);
+    } catch (e) {
+      // Chosen-but-no-field is a different failure from no-field-at-all.
+      if (choseMethod) {
+        throw new Error("withdraw/otp-field-missing-after-method-choice: " + SEL.OTP_INPUT);
+      }
+      throw e;
+    }
     fillOtpCode(input, code);
     await D.sleep(300);
     var start = Date.now();
@@ -1581,7 +1544,7 @@
       if (wasTransferCanceled()) { bc("risk-gate:canceled"); return "canceled"; }
       if (past2fa()) return "submitted";
       if (riskIdVerificationSettled() || sawIdVerification()) return "id-verification";
-      if (chooseOtpMethod()) return "otp";
+      if (await chooseOtpMethod()) return "otp";
       if (isOtpScreen()) return "otp";
       if (queryVisible(SEL.PASSKEY_PROMPT)) return "passkey";
       await D.sleep(500);
@@ -1662,7 +1625,7 @@
         installCommitInterceptor();
         forgetCommittedSend();
         bc("open-send-modal");
-        await openSendModal();
+        await enterSendFlow();
         bc("enter-recipient");
         await enterRecipient(params.address);
         await runSelectionPhase(params);

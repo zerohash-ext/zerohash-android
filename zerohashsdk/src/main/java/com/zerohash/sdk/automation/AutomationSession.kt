@@ -3,6 +3,7 @@ package com.zerohash.sdk.automation
 import android.app.Activity
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
@@ -52,6 +53,14 @@ internal class AutomationSession(
     private val initialLoad = CompletableDeferred<Unit>()
 
     private val timeoutHandler = Handler(Looper.getMainLooper())
+
+    /** Separate from [timeoutHandler] so gate polls and the session ceiling can't
+     *  interfere via removeCallbacks. */
+    private val gateHandler = Handler(Looper.getMainLooper())
+    private val gate = ChallengeGate(CHALLENGE_BUDGET_MS, CHALLENGE_POLL_MS) {
+        SystemClock.elapsedRealtime()
+    }
+    private var gateStarted = false
     private val timeoutRunnable = Runnable {
         Log.d(TAG, "session timeout after ${SESSION_TIMEOUT_MS}ms; dismissing")
         dismiss()
@@ -63,6 +72,43 @@ internal class AutomationSession(
     private var seq = 0
 
 
+    /**
+     * Hold [initialLoad] until no Cloudflare challenge owns the page (AUTH-4245).
+     *
+     * Each probe is an independent `evaluateJavascript` against whatever document is
+     * live at that moment, so it survives Cloudflare's post-solve navigation where an
+     * in-page wait would be destroyed. Ported from iOS `beginReadinessGate`.
+     */
+    private fun beginReadinessGate() {
+        if (initialLoad.isCompleted || gateStarted) return
+        gateStarted = true
+        gate.start()
+        probeForChallenge()
+    }
+
+    private fun probeForChallenge() {
+        if (initialLoad.isCompleted || didDismiss) return
+        webView?.evaluateJavascript(ChallengeGate.CHALLENGE_PROBE) { raw ->
+            if (initialLoad.isCompleted || didDismiss) return@evaluateJavascript
+            when (val decision = gate.onProbeResult(raw)) {
+                is ChallengeGate.Decision.Clear -> {
+                    Log.d(TAG, "no Cloudflare challenge; page ready to drive")
+                    initialLoad.complete(Unit)
+                }
+                is ChallengeGate.Decision.Retry ->
+                    gateHandler.postDelayed({ probeForChallenge() }, decision.delayMs)
+                is ChallengeGate.Decision.Exhausted -> {
+                    Log.e(TAG, "Cloudflare challenge unsolved after ${CHALLENGE_BUDGET_MS}ms")
+                    // Driving a challenged page surfaces as a misleading selector
+                    // error long after the real cause.
+                    initialLoad.completeExceptionally(
+                        PlatformException("withdraw/cloudflare-challenge-unsolved")
+                    )
+                }
+            }
+        }
+    }
+
     suspend fun load() = withContext(Dispatchers.Main) {
         val wv = WebView(activity)
         webView = wv
@@ -71,7 +117,9 @@ internal class AutomationSession(
         wv.addJavascriptInterface(Bridge(), BRIDGE)
         wv.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, u: String?) {
-                if (!initialLoad.isCompleted) initialLoad.complete(Unit)
+                // Not initialLoad.complete(): with a challenge in front of the page
+                // this callback belongs to the CHALLENGE document. Let the gate decide.
+                beginReadinessGate()
             }
 
             // Navigation host allowlist: this session drives the Coinbase withdrawal
@@ -227,7 +275,23 @@ internal class AutomationSession(
     companion object {
         private const val TAG = "ZHAutomation"
         private const val BRIDGE = "__zhAuto"
-        private const val INITIAL_LOAD_TIMEOUT_MS = 30_000L
+
+        /**
+         * How long [load] waits for the readiness gate. It PROCEEDS on expiry, since a
+         * merely slow page can still be driven — which is why [CHALLENGE_BUDGET_MS]
+         * must stay below it. `internal` so the invariant test can read it.
+         */
+        internal const val INITIAL_LOAD_TIMEOUT_MS = 30_000L
+
+        /**
+         * How long to wait for a challenge to clear before failing the leg. Must stay
+         * under [INITIAL_LOAD_TIMEOUT_MS]: if that expired first, [load] would be
+         * released and the automation injected into the challenge document.
+         */
+        internal const val CHALLENGE_BUDGET_MS = 25_000L
+
+        /** Delay between challenge probes (iOS polls at 500ms). */
+        private const val CHALLENGE_POLL_MS = 500L
 
         /** Wall-clock ceiling for one automation leg (iOS 300_000ms). */
         private const val SESSION_TIMEOUT_MS = 300_000L

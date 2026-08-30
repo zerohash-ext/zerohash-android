@@ -16,8 +16,7 @@
   // Coinbase mobile-web Receive entry (see openReceiveModal): the global
   // actions CTA opens a tray; the "Receive crypto" row has no testid, so we
   // anchor on its down-arrow icon. Clicking it advances to the asset selector.
-  var GLOBAL_ACTIONS_CTA = '[data-testid="global-actions-cta-wrapper"]';
-  var RECEIVE_ROW_ICON = '[data-icon-name="arrowDown"]';
+  var RECEIVE_URL = "https://www.coinbase.com/receive";
   var ASSET_SELECTION_STEP = '[data-testid="step-assetSelection-active"]';
   var NETWORK_WARNING_UNDERSTAND = '[data-testid="network-warning-step-understand"]';
   var LIGHTNING_NUX_STEP = '[data-testid="step-lightningReceiveNuxStep-active"]';
@@ -52,7 +51,6 @@
   var $ = D.$;
   var realisticClick = D.realisticClick;
   var findButtonByText = D.findButtonByText;
-  var clickableAncestor = D.clickableAncestor;
 
   // Telemetry breadcrumb (no-op unless telemetry is installed + enabled) — the
   // mobile twin of the extension's pushBreadcrumb.
@@ -61,29 +59,27 @@
   function waitUntil(find, timeoutMs) { return D.waitUntil(find, timeoutMs, DEADLINE); }
   function waitFor(sel, timeoutMs) { return D.waitFor(sel, timeoutMs, DEADLINE); }
 
-  async function openReceiveModal() {
-    // Coinbase mobile web has no Receive quick-action tile. The Receive flow is
-    // reached by opening the "global actions" CTA, which presents a tray whose
-    // "Receive crypto" row is a generated-class div with no testid — its only
-    // stable, locale-proof anchor is the down-arrow icon (RECEIVE_ROW_ICON).
-    // After clicking it the page advances to step-assetSelection-active, where
-    // the existing ReceiveAssetSelectorCell-* selectors take over.
-    //
-    // Each stage throws a distinct error suffix so a failure log pinpoints
-    // which step broke (CTA absent vs tray row absent vs step didn't advance).
-    var cta = await waitUntil(function () { return $(GLOBAL_ACTIONS_CTA); }, 10000);
-    if (!cta) throw new Error("receive_entry_not_found:cta");
-    // The CTA wrapper is a <div>; the real interactive element is the button
-    // inside it (matches the manual repro). Click the inner control, not the div.
-    var ctaBtn = cta.querySelector("button, [role='button'], a") || cta;
-    realisticClick(ctaBtn);
-
-    var icon = await waitUntil(function () { return $(RECEIVE_ROW_ICON); }, 5000);
-    if (!icon) throw new Error("receive_entry_not_found:row");
-    realisticClick(clickableAncestor(icon));
-
-    var step = await waitUntil(function () { return $(ASSET_SELECTION_STEP); }, 6000);
-    if (!step) throw new Error("receive_entry_not_found:step");
+  // Primary entry. The runner now loads https://www.coinbase.com/receive directly
+  // (Coinbase.RECEIVE_URL), which opens on the asset-selection step — so the
+  // normal path is a wait, not the three-click tray dance below.
+  //
+  // Entering at /receive instead of /trade skips the dashboard, where Coinbase
+  // intermittently renders a promo banner over the entry controls. Interstitials
+  // are dismissed WHILE waiting: /receive can open with the Lightning NUX or the
+  // network warning in front of the asset step, and dismissInterstitials only ran
+  // inside the address loop before, so that would have hung here.
+  //
+  // openReceiveModal is kept as a FALLBACK: a deep link can bounce to the
+  // dashboard, and we would rather click through than fail the request.
+  // No click-through fallback. Still sweeps interstitials: those can cover the step
+  // on a deep landing too.
+  async function awaitReceiveEntry() {
+    var step = await waitUntil(function () {
+      dismissInterstitials();
+      return $(ASSET_SELECTION_STEP);
+    }, 10000);
+    if (!step) throw new Error("receive_entry_not_found:step " + RECEIVE_URL);
+    bc("receive-entry", "deep-link");
   }
 
   async function pickAsset() {
@@ -229,7 +225,7 @@
   async function run() {
     if (!ASSET) throw new Error("missing_asset");
     bc("open-modal");
-    await openReceiveModal();
+    await awaitReceiveEntry();
     bc("select-asset", ASSET);
     await pickAsset();
     bc("select-network", NETWORK);

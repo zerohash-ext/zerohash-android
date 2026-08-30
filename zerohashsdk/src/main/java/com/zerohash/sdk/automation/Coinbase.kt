@@ -33,7 +33,13 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
 
     private const val TAG = "ZHAutomation"
     private const val HOME_URL = "https://www.coinbase.com/home"
-    private const val TRADE_URL = "https://www.coinbase.com/trade"
+
+    // Deep links into the Receive / Send flows. Skips the dashboard, where an
+    // intermittent promo banner covered the entry controls and stalled the run.
+    // These routes open with the flow's modal already up, so the click-through
+    // openers in the JS assets are now only a fallback.
+    private const val RECEIVE_URL = "https://www.coinbase.com/receive"
+    private const val SEND_URL = "https://www.coinbase.com/send"
     private const val STATUS_TIMEOUT_MS = 20_000L
 
     // Match iOS getBalance: a short normal budget, a long budget when the user is
@@ -51,8 +57,8 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
     /** Replayed from one warm page load — both in a single Cloudflare handshake. */
     private val BALANCE_OPS = listOf("CryptoQuery", "CashQuery")
 
-    /** The send flow is driven from /home (iOS `Coinbase.withdrawURL`). */
-    override val withdrawUrl = HOME_URL
+    /** /send opens with the recipient step already up; `withdraw.js` waits for it. */
+    override val withdrawUrl = SEND_URL
 
     /**
      * Detects whether the embedded WebView session is logged in to Coinbase.
@@ -196,9 +202,9 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
         overlay: OverlayOptions,
         showOverlay: Boolean,
     ): JSONObject {
-        Log.d(TAG, "getDepositAddress starting url=$TRADE_URL")
+        Log.d(TAG, "getDepositAddress starting url=$RECEIVE_URL")
         val raw = VisibleWebViewRunner(activity).run(
-            url = TRADE_URL,
+            url = RECEIVE_URL,
             scriptAsset = "automation/get-deposit-address.js",
             timeoutMs = DEPOSIT_ADDRESS_TIMEOUT_MS,
             overlayOptions = overlay,

@@ -255,8 +255,8 @@ internal class VisibleWebViewRunner(private val activity: Activity) {
         private const val CALL_ID = "1"
         private const val CHALLENGE_POLL_MS = 500L
 
-        /** Truthy while a Cloudflare interstitial/Turnstile is on the page (iOS parity). */
-        private const val CHALLENGE_PROBE =
-            "(!!(window._cf_chl_opt || document.querySelector('div[class=\"ch-title-zone\"]')))"
+        /** Aliased from [ChallengeGate] so this runner and the withdraw gate cannot
+         *  drift apart. */
+        private const val CHALLENGE_PROBE = ChallengeGate.CHALLENGE_PROBE
     }
 }

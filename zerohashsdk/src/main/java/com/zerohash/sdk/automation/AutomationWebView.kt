@@ -1,6 +1,7 @@
 package com.zerohash.sdk.automation
 
 import android.annotation.SuppressLint
+import android.content.pm.ApplicationInfo
 import android.app.Activity
 import android.content.Context
 import android.util.Log
@@ -8,6 +9,8 @@ import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.FrameLayout
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import org.json.JSONObject
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
@@ -37,6 +40,8 @@ import java.util.concurrent.ConcurrentHashMap
  * Chrome major when stable moves materially; keep the `Mobile Safari/537.36`
  * suffix intact.
  */
+private const val TAG_WV = "ZHAutomationWebView"
+
 internal const val AUTOMATION_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 16; Pixel 9) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/150.0.0.0 Mobile Safari/537.36"
@@ -69,6 +74,52 @@ internal fun WebView.applyAutomationDefaults() {
     }
     CookieManager.getInstance().setAcceptCookie(true)
     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+    setupExecutionContext()
+    enableInspectionWhenDebuggable()
+}
+
+/**
+ * Expose the automation WebView to `chrome://inspect`, debuggable hosts only.
+ *
+ * This WebView holds a live Coinbase session, so inspection must never ship —
+ * anything that can reach the device's ADB socket could read it. Gated on the
+ * HOST's `applicationInfo` rather than the SDK module's `BuildConfig.DEBUG`, which
+ * is whatever build type CI published.
+ */
+internal fun WebView.enableInspectionWhenDebuggable() {
+    val debuggable =
+        context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    if (!debuggable) return
+    WebView.setWebContentsDebuggingEnabled(true)
+}
+
+/** Exact origin, not a wildcard: this grants script injection. */
+private const val COINBASE_WWW_ORIGIN = "https://www.coinbase.com"
+
+private const val SETUP_SCRIPT_ASSET = "automation/setup-execution-context.js"
+
+/**
+ * Install `setup-execution-context.js` at document start, so it runs before
+ * Coinbase's bundle. Anything the automation needs in place before the page
+ * renders belongs in that script.
+ *
+ * Document start is the requirement, not a preference: Coinbase reads the
+ * app-upsell flag while rendering, and `evaluateJavascript` from `onPageStarted`
+ * can be dropped because the new document's JS context may not exist yet.
+ *
+ * Needs WebView 83+, and minSdk here is 21, so on an un-updated WebView none of
+ * the setup runs.
+ */
+private fun WebView.setupExecutionContext() {
+    if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+        Log.i(TAG_WV, "DOCUMENT_START_SCRIPT unsupported; execution context not set up")
+        return
+    }
+    val script = runCatching { context.readAutomationAsset(SETUP_SCRIPT_ASSET) }
+        .getOrElse { Log.e(TAG_WV, "missing $SETUP_SCRIPT_ASSET", it); return }
+    runCatching {
+        WebViewCompat.addDocumentStartJavaScript(this, script, setOf(COINBASE_WWW_ORIGIN))
+    }.onFailure { Log.e(TAG_WV, "could not set up the execution context", it) }
 }
 
 /**
