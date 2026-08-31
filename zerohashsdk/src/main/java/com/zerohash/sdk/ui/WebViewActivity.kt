@@ -21,6 +21,7 @@ import com.zerohash.sdk.CallbackHandler
 import com.zerohash.sdk.ZerohashAllowList
 import com.zerohash.sdk.oauth.OAuthHandler
 import com.zerohash.sdk.internal.Constants
+import com.zerohash.sdk.internal.padForSystemBarsAndKeyboard
 import com.zerohash.sdk.automation.AutomationBridge
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
@@ -206,6 +207,7 @@ class WebViewActivity : AppCompatActivity(),
             setContentView(container)
 
             configureStatusBar()
+            container.padForSystemBarsAndKeyboard(TAG)
 
             oauthHandler = OAuthHandler(this)
 

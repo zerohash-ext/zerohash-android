@@ -70,7 +70,10 @@ android {
     defaultConfig {
         applicationId = "com.zerohash.funddemo"
         minSdk = 21
-        targetSdk = 34
+        // Matches what partner apps ship. Android 15+ enforces edge-to-edge
+        // from 35 up, so pinning lower here hides system-bar inset bugs that
+        // every current integrator would hit.
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 

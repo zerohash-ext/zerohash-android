@@ -3,15 +3,19 @@ package com.zerohash.sdk.automation
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
 import android.util.Log
+import android.view.View
+import android.view.WindowInsetsController
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
+import com.zerohash.sdk.internal.padForSystemBarsAndKeyboard
 import kotlinx.coroutines.CompletableDeferred
 
 /**
@@ -63,6 +67,8 @@ internal class CoinbaseLoginActivity : AppCompatActivity() {
         val wv = WebView(this)
         webView = wv
         setContentView(wv)
+        wv.padForSystemBarsAndKeyboard(TAG)
+        configureStatusBar()
 
         wv.applyAutomationDefaults()
         // Popup support for provider social login (Apple): Coinbase opens Apple
@@ -112,6 +118,23 @@ internal class CoinbaseLoginActivity : AppCompatActivity() {
 
         scheduleTimeout()
         startPasskeyOnlyProbe()
+    }
+
+    /**
+     * Asks for dark status bar icons. The login page is Coinbase's own, always
+     * light, and under edge-to-edge the status bar is transparent over it. The
+     * default light icons leave the clock and battery invisible.
+     */
+    private fun configureStatusBar() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.setSystemBarsAppearance(
+                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
+                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        }
     }
 
     /**
