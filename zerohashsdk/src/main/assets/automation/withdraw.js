@@ -27,6 +27,7 @@
   function coinDirect(ticker) {
     return '[data-testid="send-asset-selector-cell-' + String(ticker).toUpperCase() + '-cell-pressable"]';
   }
+  var ASSET_SEARCH_INPUT = '[data-testid="search-input"]';
 
   // Network selection
   var NETWORK_ITEMS = '[data-testid$="-cell-pressable"][data-testid^="l2-list-item-"]:not([disabled])';
@@ -144,6 +145,7 @@
     EXCHANGE_OPTION: EXCHANGE_OPTION,
     COIN_LIST: COIN_LIST,
     coinDirect: coinDirect,
+    ASSET_SEARCH_INPUT: ASSET_SEARCH_INPUT,
     NETWORK_ITEMS: NETWORK_ITEMS,
     NETWORK_ITEMS_ANY: NETWORK_ITEMS_ANY,
     networkTestId: networkTestId,
@@ -320,19 +322,7 @@
   function humanDelay(ms) { return D.sleep(ms || 0); }
   function humanClick(el) { D.realisticClick(el); return D.sleep(50); }
 
-  // React-controlled inputs ignore a plain `input.value =`. Set via the native
-  // prototype descriptor's setter, then dispatch input/change so React's
-  // onChange fires. This is the crux of driving Coinbase's fields.
-  function setReactValue(input, value) {
-    var proto = input.tagName === "TEXTAREA"
-      ? window.HTMLTextAreaElement.prototype
-      : window.HTMLInputElement.prototype;
-    var desc = Object.getOwnPropertyDescriptor(proto, "value");
-    if (desc && desc.set) { desc.set.call(input, value); }
-    else { input.value = value; }
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  }
+  var setReactValue = D.setReactValue;
 
   function typeLikeHuman(input, text) {
     input.focus();
@@ -662,6 +652,24 @@
     // 5s without an enabled target cell. Surface incompatibility specifically,
     // else enumerate what's on screen for a useful not-found error.
     if (isNoCompatibleAssets()) throw addressUnsupportedError();
+
+    var search = document.querySelector(SEL.ASSET_SEARCH_INPUT);
+    if (search) {
+      search.focus();
+      setReactValue(search, String(ticker).toUpperCase());
+      var filtered = await pollUntil(function () {
+        var cell = document.querySelector(directSelector);
+        return (cell && !isDisabled(cell)) ? cell : null;
+      }, 3000).catch(function () { return null; });
+      if (filtered) {
+        await clickAndVerifyAdvance(filtered, "selectCoin(" + ticker + ") via search");
+        return;
+      }
+      if (isNoCompatibleAssets()) throw addressUnsupportedError();
+      var narrowed = document.querySelector(directSelector);
+      if (narrowed && isDisabled(narrowed)) throw addressUnsupportedError();
+    }
+
     var items = Array.prototype.slice.call(document.querySelectorAll(SEL.COIN_LIST));
     for (var i = 0; i < items.length; i++) {
       var testId = items[i].getAttribute("data-testid") || "";

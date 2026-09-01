@@ -166,6 +166,10 @@ internal class VisibleWebViewRunner(private val activity: Activity) {
         cover.start()
     }
 
+    private fun revealOverlay(revealed: Boolean) {
+        overlay?.getView()?.visibility = if (revealed) View.GONE else View.VISIBLE
+    }
+
     /**
      * Polls the live page until no Cloudflare challenge is present, then covers
      * the page with the overlay and evaluates the script ONCE. Each poll is an
@@ -179,6 +183,8 @@ internal class VisibleWebViewRunner(private val activity: Activity) {
         overlayOptions: OverlayOptions,
     ) {
         val tick = object : Runnable {
+            private var didReveal = false
+
             override fun run() {
                 if (result.isCompleted) return
                 webView?.evaluateJavascript(CHALLENGE_PROBE) { r ->
@@ -188,9 +194,15 @@ internal class VisibleWebViewRunner(private val activity: Activity) {
                     val challenged = r != "false"
                     if (!challenged) {
                         Log.d(TAG, "challenge cleared; covering and replaying")
+                        revealOverlay(false)
                         root?.let { presentOverlay(it, overlayOptions) }
                         evaluate(webView, script, prelude, paramsJson)
                     } else {
+                        if (!didReveal) {
+                            Log.d(TAG, "Cloudflare challenge up; lifting overlay so the user can solve it")
+                            revealOverlay(true)
+                            didReveal = true
+                        }
                         handler.postDelayed(this, CHALLENGE_POLL_MS)
                     }
                 }

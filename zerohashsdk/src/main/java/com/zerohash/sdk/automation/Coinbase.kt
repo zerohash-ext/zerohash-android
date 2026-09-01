@@ -46,7 +46,7 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
     // solving a Cloudflare challenge on the revealed page.
     private const val BALANCE_TIMEOUT_MS = 10_000L
     private const val BALANCE_CHALLENGE_TIMEOUT_MS = 90_000L
-    private const val DEPOSIT_ADDRESS_TIMEOUT_MS = 30_000L
+    private const val DEPOSIT_ADDRESS_TIMEOUT_MS = 90_000L
 
     // Per-leg withdraw timeouts (slightly under the web client's, so native
     // answers first): web start=90s, continue=60s.
@@ -209,6 +209,7 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
             timeoutMs = DEPOSIT_ADDRESS_TIMEOUT_MS,
             overlayOptions = overlay,
             showOverlay = showOverlay,
+            waitForChallengeClearance = true,
             preludeAssets = listOf("automation/dom-helpers.js"),
             paramsJson = payloadJson,
         ) { host ->

@@ -84,6 +84,18 @@ window.__zhDom = (function () {
     return el; // fall back to the element itself; clicks still bubble
   }
 
+  function setReactValue(input, value) {
+    var ctor = input.tagName === "TEXTAREA"
+      ? window.HTMLTextAreaElement
+      : window.HTMLInputElement;
+    var desc = ctor && ctor.prototype
+      ? Object.getOwnPropertyDescriptor(ctor.prototype, "value")
+      : null;
+    if (desc && desc.set) { desc.set.call(input, value); } else { input.value = value; }
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
   return {
     sleep: sleep,
     $: $,
@@ -91,6 +103,7 @@ window.__zhDom = (function () {
     waitFor: waitFor,
     realisticClick: realisticClick,
     findButtonByText: findButtonByText,
-    clickableAncestor: clickableAncestor
+    clickableAncestor: clickableAncestor,
+    setReactValue: setReactValue
   };
 })();

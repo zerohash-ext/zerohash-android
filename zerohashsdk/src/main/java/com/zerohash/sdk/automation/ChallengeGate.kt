@@ -56,10 +56,19 @@ internal class ChallengeGate(
         /**
          * One definition, shared by every runner.
          *
-         * iOS matches five further markers. Widening to match is a separate change:
-         * it also affects the balance path, which has its own retry choreography.
+         * Matches iOS `AutomatedWebViewController.challengeProbe` marker for
+         * marker. It used to check only two of the six, leaving the interstitial
+         * and Turnstile-iframe forms undetected — a gate that misses the
+         * challenge is not a gate, and the deposit-address flow now depends on
+         * this firing rather than merely retrying.
+         *
+         * Widening can only make a probe MORE likely to report "challenged",
+         * which on every consumer means "keep polling, don't inject yet" — so it
+         * cannot make the balance path's retry choreography less safe.
          */
         const val CHALLENGE_PROBE =
-            "(!!(window._cf_chl_opt || document.querySelector('div[class=\"ch-title-zone\"]')))"
+            "(!!(window._cf_chl_opt || document.querySelector('#challenge-running, " +
+                "#cf-challenge-running, #challenge-stage, #cf-chl-widget, " +
+                "iframe[src*=\"challenges.cloudflare.com\"], div[class=\"ch-title-zone\"]')))"
     }
 }
