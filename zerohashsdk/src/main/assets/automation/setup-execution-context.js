@@ -11,7 +11,24 @@
     window.localStorage.setItem("appUpsellDismissed", "true");
   }
 
-  var steps = [dismissAppUpsell];
+  function hideRiskGateCloseButton() {
+    var STYLE_ID = "zh-hide-risk-gate-close";
+    var CSS =
+      '[data-testid="step-riskSelfServeStep-active"] button.cds-IconButton' +
+      "{display:none !important;}";
+
+    function inject() {
+      if (document.getElementById(STYLE_ID)) return;
+      var style = document.createElement("style");
+      style.id = STYLE_ID;
+      style.textContent = CSS;
+      (document.head || document.documentElement).appendChild(style);
+    }
+
+    inject();
+  }
+
+  var steps = [dismissAppUpsell, hideRiskGateCloseButton];
   for (var i = 0; i < steps.length; i++) {
     // One failing step must not stop the others, and none of them is worth
     // aborting the run for.
