@@ -284,12 +284,41 @@ off to Chrome Custom Tabs rather than run inside the SDK's WebView.
 
 ## Local development
 
-`app/` is a single-screen demo with one button per flow. Run it on an
-emulator/device:
+`app/` is the **zerohash QA** testing app: pick an environment, choose a flow,
+mint (or paste) a JWT, then open the SDK flow. Run it on an emulator/device:
 
 ```bash
 ./gradlew :app:installDebug
 ```
+
+**cert** and **production** are public; **gating** and **dev** are internal and
+only reachable from a device on the corporate VPN / in-network. Internal envs are
+enabled in **debug** builds only — release builds reject them.
+
+### Reaching cert / gat / dev on-device (Netskope CA)
+
+zerohash cert/gat/dev sit behind Netskope TLS inspection, so an emulator (or a
+personal device) must trust the Netskope corporate CA. Without it, minting and
+the WebView fail with `SSLHandshakeException: Trust anchor for certification path
+not found`. Corp-managed devices already trust it via MDM. For an emulator
+(`google_apis` image):
+
+```bash
+# 1. Export the CA from a machine that already trusts it (macOS System keychain)
+security find-certificate -c "ca.zerohash.goskope.com" -p \
+  /Library/Keychains/System.keychain > netskope-ca.pem
+
+# 2. Install it into the emulator's user CA store
+HASH=$(openssl x509 -inform PEM -subject_hash_old -in netskope-ca.pem | head -1)
+adb root
+adb push netskope-ca.pem /data/misc/user/0/cacerts-added/$HASH.0
+adb shell "chown system:system /data/misc/user/0/cacerts-added/$HASH.0 && \
+  chmod 644 /data/misc/user/0/cacerts-added/$HASH.0 && \
+  chcon u:object_r:system_security_cacerts_file:s0 /data/misc/user/0/cacerts-added/$HASH.0"
+```
+
+The debug build already trusts user-installed CAs via a local-only network-security
+overlay in `app/src/debug` (git-ignored — see `DO_NOT_COMMIT.md`).
 
 ## License
 

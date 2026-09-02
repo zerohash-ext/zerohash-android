@@ -40,19 +40,31 @@ enum class Environment {
     PRODUCTION,
 
     /**
-     * INTERNAL TESTING ONLY — zerohash's pre-release gating environment, used by
-     * the instrumentation e2e suite (AUTH-3838). Not for partner use.
+     * INTERNAL TESTING ONLY — zerohash's pre-release gating environment. Not for
+     * partner use; the SDK rejects it in non-debuggable (release) builds.
      */
-    GATING;
+    GATING,
+
+    /**
+     * INTERNAL TESTING ONLY — zerohash's dev environment (AT-854). Like [GATING]
+     * it lives behind the corporate VPN (private VPC), so it is only reachable
+     * from an in-network device/emulator. Not for partner use; the SDK rejects it
+     * in non-debuggable (release) builds.
+     */
+    DEV;
 
     /**
      * Native vocabulary forwarded to the web app via the `jwt` message
-     * (`{ token, env }`). GATING sends `sandbox` — the web vocabulary only has
-     * production/sandbox; the gating deployment's runtime env-config picks the hosts.
+     * (`{ token, env }`). The mobile web app passes the internal envs through so
+     * the Fund iframe resolves from the matching CDN host (see [webHost]) instead
+     * of collapsing to cert; partner-facing envs keep the production/sandbox
+     * vocabulary.
      */
     fun toWebValue(): String = when (this) {
-        SANDBOX, GATING -> "sandbox"
+        SANDBOX -> "sandbox"
         PRODUCTION -> "production"
+        GATING -> "gating"
+        DEV -> "dev"
     }
 
     /**
@@ -74,8 +86,19 @@ enum class Environment {
         get() = when (this) {
             SANDBOX -> "sdk-cdn.cert.zerohash.com"
             PRODUCTION -> "sdk-cdn.zerohash.com"
-            GATING -> "connect-sdk.gating.0hash.com"
+            GATING -> "sdk-cdn.gating.0hash.com"
+            DEV -> "sdk-cdn.dev.0hash.com"
         }
+
+    /**
+     * Internal-only environments point at zerohash's private, VPN-gated
+     * infrastructure and must never run in a shipped partner app. Because Kotlin
+     * enums cannot be conditionally compiled out like iOS's `#if DEBUG` case, the
+     * SDK enforces this at runtime (see `ZerohashFundSession.present`), rejecting
+     * these envs when the host app is not debuggable.
+     */
+    internal val isInternalOnly: Boolean
+        get() = this == GATING || this == DEV
 }
 
 /**

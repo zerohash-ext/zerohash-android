@@ -2,6 +2,8 @@ package com.zerohash.funddemo
 
 import android.os.Bundle
 import android.util.Log
+import android.widget.CheckBox
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.zerohash.funddemo.databinding.ActivityMainBinding
@@ -26,12 +28,40 @@ class MainActivity : AppCompatActivity() {
     private var fundSession: ZerohashFundSession? = null
     private var cryptoWithdrawalsSession: ZerohashCryptoWithdrawalsSession? = null
     private var fundWithdrawalsSession: ZerohashFundWithdrawalsSession? = null
+    private val mintExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val permissionCheckboxes = mutableListOf<CheckBox>()
+    private var currentStep = 0
 
     companion object {
         private const val TAG = "ZerohashDemo"
         private const val PREFS = "demo-prefs"
         private const val KEY_DEV_MODE = "devModeEnabled"
-        private const val DEMO_JWT = "your-jwt-token-here"
+
+        private const val STEP_ENVIRONMENT = 0
+        private const val STEP_FLOW = 1
+        private const val STEP_TOKEN = 2
+
+        private val STEP_TITLES = arrayOf(
+            "Step 1 of 3 · Environment",
+            "Step 2 of 3 · Flow",
+            "Step 3 of 3 · Token",
+        )
+
+        /**
+         * SDK permissions the kyc-mock-platform-server `/manager/jwt` accepts,
+         * in the server's switch order (see kyc-mock-platform-server
+         * internal/service/handlers.go). Rendered as a checkbox grid.
+         */
+        private val SDK_PERMISSIONS = listOf(
+            "onboarding", "update-participant", "csp-active", "csp-recovery",
+            "fiat-deposits", "fiat-withdrawals", "crypto-withdrawals", "crypto-buy",
+            "crypto-sell", "fwc", "participant-profile", "crypto-account-link",
+            "crypto-payouts", "crypto-pay", "fiat-account-link", "crypto-deposits",
+            "recovery"
+        )
+
+        /** Ticked by default — the auth Fund platform's permission set. */
+        private val DEFAULT_PERMISSIONS = setOf("fwc", "crypto-deposits")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,27 +73,239 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
-        supportActionBar?.subtitle = BuildConfig.ZEROHASH_SDK_SOURCE
-        binding.tvSdkSource.text = "SDK source: ${BuildConfig.ZEROHASH_SDK_SOURCE}"
-
         setupDevMode()
 
-        binding.etJwt.setText(DEMO_JWT)
-
-        binding.btnFund.setOnClickListener {
-            startFund()
+        binding.tvBuildNote.text = if (BuildConfig.DEBUG) {
+            "Debug build — all environments enabled. Gating and Dev also need the " +
+                "corporate VPN and the Netskope CA installed on this device."
+        } else {
+            "Release build — Gating and Dev are disabled; install a debug build to " +
+                "test internal environments. Cert and Production work normally."
         }
 
-        binding.btnCryptoWithdrawals.setOnClickListener {
-            startCryptoWithdrawals()
+        buildPermissionGrid(binding.llPermissions)
+
+        // Platform/participant are 6-char all-caps codes.
+        val codeFilters = arrayOf<android.text.InputFilter>(
+            android.text.InputFilter.AllCaps(),
+            android.text.InputFilter.LengthFilter(6),
+        )
+        binding.etPlatform.filters = codeFilters
+        binding.etParticipant.filters = codeFilters
+
+        binding.btnBack.setOnClickListener { goTo(currentStep - 1) }
+        binding.btnPrimary.setOnClickListener { onPrimary() }
+        binding.btnMint.setOnClickListener { startMint() }
+        binding.btnClearLog.setOnClickListener { binding.tvLog.text = "" }
+        binding.btnCopyJwt.setOnClickListener {
+            val jwt = binding.etJwt.text.toString().trim()
+            if (jwt.isBlank()) {
+                showError("No JWT to copy")
+            } else {
+                val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("jwt", jwt))
+                addLog("Copied JWT (${jwt.length} chars) to clipboard")
+                showToast("JWT copied")
+            }
         }
 
-        binding.btnFundWithdrawals.setOnClickListener {
-            startFundWithdrawals()
+        goTo(STEP_ENVIRONMENT)
+    }
+
+    /** Switches to [step] and reconfigures the persistent footer for it. */
+    private fun goTo(step: Int) {
+        currentStep = step
+        binding.vfSteps.displayedChild = step
+        binding.tvStepHeader.text = STEP_TITLES[step]
+        binding.btnBack.visibility = if (step == STEP_ENVIRONMENT) android.view.View.GONE else android.view.View.VISIBLE
+        binding.btnPrimary.text = if (step == STEP_TOKEN) "Open" else "Next"
+    }
+
+    /** Primary footer action, per the current step. */
+    private fun onPrimary() {
+        when (currentStep) {
+            STEP_ENVIRONMENT -> goTo(STEP_FLOW)
+            STEP_FLOW -> {
+                applyDefaultsForMint()
+                goTo(STEP_TOKEN)
+            }
+            STEP_TOKEN ->
+                if (binding.etJwt.text.toString().isBlank()) {
+                    showError("Mint or paste a JWT first")
+                } else {
+                    launchSelectedFlow()
+                }
+        }
+    }
+
+    private fun launchSelectedFlow() {
+        when (binding.rgFlow.checkedRadioButtonId) {
+            R.id.rbFlowCryptoWd -> startCryptoWithdrawals()
+            R.id.rbFlowFundWd -> startFundWithdrawals()
+            else -> startFund()
+        }
+    }
+
+    /** Default mint inputs for a chosen (environment, flow). */
+    private data class MintDefaults(
+        val platform: String,
+        val participant: String,
+        val permissions: List<String>,
+        val authPolicy: Boolean,
+    )
+
+    /** Permission set a flow needs (used when no env-specific default exists). */
+    private fun flowPermissions(flowId: Int): List<String> = when (flowId) {
+        R.id.rbFlowCryptoWd -> listOf("crypto-withdrawals")
+        R.id.rbFlowFundWd -> listOf("crypto-withdrawals")
+        else -> listOf("fwc") // Fund
+    }
+
+    /**
+     * Default mint inputs per (environment, flow). Codes are non-PII internal test
+     * data from two sources:
+     *  - Gating Fund: android SDK fund gating suite (zerohash-android/.env.gating,
+     *    verified 2026-08-21) — auth platform BM3LDA/62LHRQ (fwc + crypto-deposits
+     *    + auth_policy); non-auth platform is HSBCRW/JLXERM (flip auth_policy off).
+     *  - Everything else: sdk-ui-apps per-env TEST_DATA
+     *    (local-testing/data/test-data.js) — defaultPlatform/participant for Fund,
+     *    payoutPlatform/participant for Fund Withdrawals.
+     * Blank where no code exists yet; every field stays editable.
+     */
+    private fun defaultsFor(env: Environment, flowId: Int): MintDefaults {
+        val fund = flowId == R.id.rbFlowFund
+        val fwd = flowId == R.id.rbFlowFundWd
+        val perms = flowPermissions(flowId)
+        return when (env) {
+            Environment.SANDBOX -> when {
+                fund -> MintDefaults("UW6VWU", "T0A4YI", listOf("fwc"), authPolicy = true)
+                fwd -> MintDefaults("MECSTB", "D4G1I3", perms, authPolicy = false)
+                else -> MintDefaults("UW6VWU", "6GLSCW", perms, authPolicy = false)
+            }
+            Environment.GATING -> when {
+                fund -> MintDefaults("BM3LDA", "62LHRQ", listOf("fwc", "crypto-deposits"), authPolicy = true)
+                fwd -> MintDefaults("MECSTB", "D4G1I3", perms, authPolicy = false)
+                else -> MintDefaults("D2VWYF", "0O7L9E", perms, authPolicy = false)
+            }
+            Environment.DEV -> when {
+                fund -> MintDefaults("H552SV", "ZHH1NA", listOf("fwc"), authPolicy = true)
+                else -> MintDefaults("H552SV", "ZHH1NA", perms, authPolicy = false)
+            }
+            Environment.PRODUCTION -> MintDefaults("", "", perms, authPolicy = fund)
+        }
+    }
+
+    /** Prefills the Token step from [defaultsFor] the chosen env + flow. */
+    private fun applyDefaultsForMint() {
+        val d = defaultsFor(selectedEnvironment(), binding.rgFlow.checkedRadioButtonId)
+        binding.etPlatform.setText(d.platform)
+        binding.etParticipant.setText(d.participant)
+        binding.cbAuthPolicy.isChecked = d.authPolicy
+        permissionCheckboxes.forEach { it.isChecked = it.text.toString() in d.permissions }
+        addLog(
+            "Defaults ${selectedEnvironment().name}/${flowLabel()}: " +
+                "platform=${d.platform.ifBlank { "—" }} participant=${d.participant.ifBlank { "—" }} " +
+                "perms=${d.permissions} auth=${d.authPolicy}"
+        )
+    }
+
+    private fun flowLabel(): String = when (binding.rgFlow.checkedRadioButtonId) {
+        R.id.rbFlowCryptoWd -> "CryptoWithdrawals"
+        R.id.rbFlowFundWd -> "FundWithdrawals"
+        else -> "Fund"
+    }
+
+    /**
+     * Two-column checkbox grid of the accepted SDK permissions, built into
+     * [container]. [DEFAULT_PERMISSIONS] start ticked.
+     */
+    private fun buildPermissionGrid(container: LinearLayout) {
+        container.removeAllViews()
+        permissionCheckboxes.clear()
+        var row: LinearLayout? = null
+        SDK_PERMISSIONS.forEachIndexed { i, perm ->
+            if (i % 2 == 0) {
+                row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    )
+                }
+                container.addView(row)
+            }
+            val cb = CheckBox(this).apply {
+                text = perm
+                textSize = 13f
+                isChecked = perm in DEFAULT_PERMISSIONS
+                layoutParams = LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f,
+                )
+            }
+            permissionCheckboxes.add(cb)
+            row?.addView(cb)
+        }
+    }
+
+    private fun selectedPermissions(): List<String> =
+        permissionCheckboxes.filter { it.isChecked }.map { it.text.toString() }
+
+    /**
+     * Mints a JWT for the selected environment from its kyc-mock-platform-server
+     * and drops it into the JWT field. Runs off the main thread; gating/dev only
+     * succeed on an in-network device.
+     */
+    private fun startMint() {
+        val env = selectedEnvironment()
+        val platform = binding.etPlatform.text.toString().trim()
+        val participant = binding.etParticipant.text.toString().trim()
+        val permissions = selectedPermissions()
+        val authPolicy = binding.cbAuthPolicy.isChecked
+
+        if (platform.isEmpty() || participant.isEmpty()) {
+            showError("Enter platform and participant codes")
+            return
+        }
+        if (permissions.isEmpty()) {
+            showError("Tick at least one permission")
+            return
         }
 
-        binding.btnClearLog.setOnClickListener {
-            binding.tvLog.text = ""
+        val url = "${MintClient.managerHost(env)}/manager/jwt${if (authPolicy) "?auth_policy_enabled=true" else ""}"
+        addLog("POST $url")
+        addLog("body: platform=$platform participant=$participant perms=$permissions")
+        binding.btnMint.isEnabled = false
+        binding.tvMintStatus.text = "Minting… → $url"
+        mintExecutor.execute {
+            val result = runCatching {
+                MintClient.mint(MintClient.Params(env, platform, participant, permissions, authPolicy))
+            }
+            runOnUiThread {
+                binding.btnMint.isEnabled = true
+                result
+                    .onSuccess { token ->
+                        binding.etJwt.setText(token)
+                        binding.tvMintStatus.text = "✓ Minted ${token.length}-char JWT from\n$url"
+                        addLog("Minted JWT (${token.length} chars)")
+                        showToast("JWT minted")
+                    }
+                    .onFailure { e ->
+                        Log.e(TAG, "Mint failed", e)
+                        val detail = "${e.javaClass.simpleName}: ${e.message}"
+                        val isTls = (e.message ?: "").contains("Trust anchor", true) ||
+                            (e.message ?: "").contains("SSL", true) ||
+                            (e.cause?.message ?: "").contains("Trust anchor", true)
+                        val hint = if (isTls) {
+                            "\n\nTLS not trusted. cert/gat/dev sit behind Netskope — install the " +
+                                "Netskope CA on this device (Settings ▸ Security ▸ Encryption & " +
+                                "credentials ▸ Install a certificate ▸ CA), then retry."
+                        } else ""
+                        binding.tvMintStatus.text = "✗ Mint failed\n$detail$hint"
+                        addLog("Mint failed: $detail")
+                        if (isTls) addLog("Hint: install the Netskope CA on the device (TLS trust anchor missing).")
+                        showError("Mint failed: $detail")
+                    }
+            }
         }
     }
 
@@ -87,12 +329,13 @@ class MainActivity : AppCompatActivity() {
                         addLog("onClose")
                         showToast("Session closed")
                         fundSession = null
+                        runOnUiThread { goTo(STEP_FLOW) }
                     }
 
                     override fun onError(error: ZerohashError) {
                         Log.e(TAG, "Fund error: ${error.message}")
                         addLog("onError: $error")
-                        showToast("Error: ${error.message}")
+                        showError("Error: ${error.message}")
                     }
 
                     override fun onEvent(event: GenericEvent) {
@@ -110,7 +353,7 @@ class MainActivity : AppCompatActivity() {
 
                     override fun onFailed(event: FundCompletedEvent) {
                         addLog("onFailed: $event")
-                        showToast("Funding failed")
+                        showError("Funding failed")
                     }
                 }
             )
@@ -119,7 +362,7 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start Fund", e)
             addLog("Exception: ${e.message}")
-            showToast("Failed to start: ${e.message}")
+            showError("Failed to start: ${e.message}")
         }
     }
 
@@ -143,12 +386,13 @@ class MainActivity : AppCompatActivity() {
                         addLog("onClose")
                         showToast("Session closed")
                         cryptoWithdrawalsSession = null
+                        runOnUiThread { goTo(STEP_FLOW) }
                     }
 
                     override fun onError(error: ZerohashError) {
                         Log.e(TAG, "Crypto Withdrawals error: ${error.message}")
                         addLog("onError: $error")
-                        showToast("Error: ${error.message}")
+                        showError("Error: ${error.message}")
                     }
 
                     override fun onEvent(event: GenericEvent) {
@@ -166,7 +410,7 @@ class MainActivity : AppCompatActivity() {
 
                     override fun onFailed(event: CryptoWithdrawalsCompletedEvent) {
                         addLog("onFailed: $event")
-                        showToast("Withdrawal failed")
+                        showError("Withdrawal failed")
                     }
                 }
             )
@@ -175,7 +419,7 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start Crypto Withdrawals", e)
             addLog("Exception: ${e.message}")
-            showToast("Failed to start: ${e.message}")
+            showError("Failed to start: ${e.message}")
         }
     }
 
@@ -199,12 +443,13 @@ class MainActivity : AppCompatActivity() {
                         addLog("Session closed")
                         showToast("Session closed")
                         fundWithdrawalsSession = null
+                        runOnUiThread { goTo(STEP_FLOW) }
                     }
 
                     override fun onError(error: ZerohashError) {
                         Log.e(TAG, "Fund Withdrawals error: ${error.message}")
                         addLog("Error: ${error.message}")
-                        showToast("Error: ${error.message}")
+                        showError("Error: ${error.message}")
                     }
 
                     override fun onEvent(event: GenericEvent) {
@@ -225,22 +470,21 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start Fund Withdrawals", e)
             addLog("Exception: ${e.message}")
-            showToast("Failed to start: ${e.message}")
+            showError("Failed to start: ${e.message}")
         }
     }
 
     private fun resolveJwt(): String {
-        val jwt = binding.etJwt.text.toString().trim()
-        return if (jwt.isBlank() || jwt == DEMO_JWT) {
-            addLog("Using dummy JWT for testing (will fail authentication)")
+        return binding.etJwt.text.toString().trim().ifBlank {
+            addLog("No JWT set — using dummy (will fail authentication)")
             "test-jwt-token-for-ui-testing"
-        } else {
-            jwt
         }
     }
 
     private fun selectedEnvironment(): Environment = when (binding.rgEnvironment.checkedRadioButtonId) {
         R.id.rbSandbox -> Environment.SANDBOX
+        R.id.rbGating -> Environment.GATING
+        R.id.rbDev -> Environment.DEV
         else -> Environment.PRODUCTION
     }
 
@@ -271,6 +515,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Errors use a red Snackbar that stays until dismissed (not a fleeting toast),
+     * so a failure is easy to notice and read.
+     */
+    private fun showError(message: String) {
+        runOnUiThread {
+            val sb = com.google.android.material.snackbar.Snackbar.make(
+                binding.root, message, com.google.android.material.snackbar.Snackbar.LENGTH_INDEFINITE,
+            )
+            sb.setBackgroundTint(android.graphics.Color.parseColor("#C5362E"))
+            sb.setTextColor(android.graphics.Color.WHITE)
+            sb.setActionTextColor(android.graphics.Color.WHITE)
+            sb.setAction("Dismiss") { sb.dismiss() }
+            sb.view.findViewById<android.widget.TextView>(
+                com.google.android.material.R.id.snackbar_text,
+            )?.maxLines = 6
+            sb.show()
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         // Returning from the system overlay-permission screen: attach now that it
@@ -287,6 +551,7 @@ class MainActivity : AppCompatActivity() {
         fundSession?.cancel()
         cryptoWithdrawalsSession?.cancel()
         fundWithdrawalsSession?.cancel()
+        mintExecutor.shutdownNow()
         DevPanel.detach()
     }
 

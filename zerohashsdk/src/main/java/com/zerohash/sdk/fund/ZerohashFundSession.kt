@@ -2,6 +2,7 @@ package com.zerohash.sdk.fund
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.util.Log
 import com.zerohash.sdk.BuildConfig
 import com.zerohash.sdk.ZerohashAllowList
@@ -49,6 +50,20 @@ class ZerohashFundSession internal constructor(
     fun present(activity: Activity): ZerohashSession? {
         if (hasPresented) {
             Log.w(TAG, "Session already presented")
+            return null
+        }
+
+        // INTERNAL-ONLY envs (GATING/DEV) point at zerohash's private, VPN-gated
+        // infrastructure and must never run in a shipped app. Kotlin enums can't be
+        // compiled out of the release artifact like iOS's `#if DEBUG`, so gate at
+        // runtime: allow them only when the host app is debuggable.
+        if (environment.isInternalOnly &&
+            activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0
+        ) {
+            val msg = "Environment.$environment is for internal testing only and is " +
+                "not permitted in a non-debuggable (release) build."
+            Log.e(TAG, msg)
+            callbacks.onError(ZerohashError.ConfigurationError(msg))
             return null
         }
 

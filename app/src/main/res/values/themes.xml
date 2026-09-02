@@ -1,8 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.ZerohashDemo" parent="Theme.AppCompat.Light.DarkActionBar">
-        <item name="colorPrimary">@color/zh_evergreen</item>
-        <item name="colorPrimaryDark">@color/off_black</item>
-        <item name="colorAccent">@color/zh_green</item>
+    <!-- Modern dark theme. Near-black green background, dark cards, bright ZH-green
+         CTAs with dark text (matches the web sandbox). -->
+    <style name="Theme.ZerohashDemo" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="colorPrimary">@color/zh_green</item>
+        <item name="colorPrimaryVariant">@color/zh_green</item>
+        <item name="colorOnPrimary">@color/zh_evergreen</item>
+        <item name="colorSecondary">@color/zh_green</item>
+        <item name="colorSecondaryVariant">@color/zh_green</item>
+        <item name="colorOnSecondary">@color/zh_evergreen</item>
+        <item name="android:colorBackground">@color/page_bg</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorOnBackground">@color/text_primary</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="android:statusBarColor">@color/page_bg</item>
+        <item name="android:navigationBarColor">@color/page_bg</item>
+    </style>
+
+    <!-- Small-caps section label used inside cards. -->
+    <style name="Label.Section" parent="">
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:letterSpacing">0.06</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:layout_marginBottom">10dp</item>
+    </style>
+
+    <!-- Full-width primary action button. -->
+    <style name="Button.Action" parent="Widget.MaterialComponents.Button">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">52dp</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="android:letterSpacing">0.02</item>
     </style>
 </resources>
