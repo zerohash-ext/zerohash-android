@@ -84,6 +84,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         buildPermissionGrid(binding.llPermissions)
+        setupAutomationLocators()
 
         // Platform/participant are 6-char all-caps codes.
         val codeFilters = arrayOf<android.text.InputFilter>(
@@ -95,8 +96,10 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnBack.setOnClickListener { goTo(currentStep - 1) }
         binding.btnPrimary.setOnClickListener { onPrimary() }
-        binding.btnMint.setOnClickListener { startMint() }
         binding.btnClearLog.setOnClickListener { binding.tvLog.text = "" }
+        binding.btnClearJwt.setOnClickListener {
+            binding.etJwt.setText("")   // text-watcher flips the footer back to "Mint & Open"
+        }
         binding.btnCopyJwt.setOnClickListener {
             val jwt = binding.etJwt.text.toString().trim()
             if (jwt.isBlank()) {
@@ -109,6 +112,15 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // Keep the Token-step button in sync as the JWT field changes (paste/clear/mint).
+        binding.etJwt.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                if (currentStep == STEP_TOKEN) binding.btnPrimary.text = tokenPrimaryLabel()
+            }
+        })
+
         goTo(STEP_ENVIRONMENT)
     }
 
@@ -118,8 +130,38 @@ class MainActivity : AppCompatActivity() {
         binding.vfSteps.displayedChild = step
         binding.tvStepHeader.text = STEP_TITLES[step]
         binding.btnBack.visibility = if (step == STEP_ENVIRONMENT) android.view.View.GONE else android.view.View.VISIBLE
-        binding.btnPrimary.text = if (step == STEP_TOKEN) "Open" else "Next"
+        binding.btnPrimary.text = if (step == STEP_TOKEN) tokenPrimaryLabel() else "Next"
     }
+
+    /**
+     * Stamps stable, semantic accessibility IDs (content-descriptions) on every
+     * automatable control so Appium (`~env-dev`) and Maestro (`id: env-dev`) can
+     * locate elements independently of their visible text — which changes with
+     * env/flow copy and the primary button's Next / Mint & Open / Open label.
+     * Resource-ids stay the primary Appium locator; these are the label-proof hook.
+     */
+    private fun setupAutomationLocators() {
+        binding.rbProduction.contentDescription = "env-production"
+        binding.rbSandbox.contentDescription = "env-sandbox"
+        binding.rbGating.contentDescription = "env-gating"
+        binding.rbDev.contentDescription = "env-dev"
+        binding.rbFlowFund.contentDescription = "flow-fund"
+        binding.rbFlowCryptoWd.contentDescription = "flow-crypto-withdrawals"
+        binding.rbFlowFundWd.contentDescription = "flow-fund-withdrawals"
+        binding.etPlatform.contentDescription = "input-platform"
+        binding.etParticipant.contentDescription = "input-participant"
+        binding.cbAuthPolicy.contentDescription = "toggle-auth-policy"
+        binding.etJwt.contentDescription = "input-jwt"
+        binding.btnCopyJwt.contentDescription = "action-copy-jwt"
+        binding.btnClearJwt.contentDescription = "action-clear-jwt"
+        binding.btnClearLog.contentDescription = "action-clear-log"
+        binding.btnBack.contentDescription = "action-back"
+        binding.btnPrimary.contentDescription = "action-primary"
+    }
+
+    /** Token-step primary label: mint first if there's no JWT yet, else just open. */
+    private fun tokenPrimaryLabel(): String =
+        if (binding.etJwt.text.toString().isBlank()) "Mint & Open" else "Open"
 
     /** Primary footer action, per the current step. */
     private fun onPrimary() {
@@ -131,7 +173,9 @@ class MainActivity : AppCompatActivity() {
             }
             STEP_TOKEN ->
                 if (binding.etJwt.text.toString().isBlank()) {
-                    showError("Mint or paste a JWT first")
+                    // No token yet → mint, then open on success (failures surface
+                    // inline in the status line and as a red error bar).
+                    startMint(openOnSuccess = true)
                 } else {
                     launchSelectedFlow()
                 }
@@ -198,6 +242,10 @@ class MainActivity : AppCompatActivity() {
     /** Prefills the Token step from [defaultsFor] the chosen env + flow. */
     private fun applyDefaultsForMint() {
         val d = defaultsFor(selectedEnvironment(), binding.rgFlow.checkedRadioButtonId)
+        // Start each run with a clean JWT so we always re-mint for the chosen
+        // env/flow (footer resets to "Mint & Open" via the text-watcher).
+        binding.etJwt.setText("")
+        binding.tvMintStatus.text = "“Mint & Open” mints with these values and opens the flow — or paste a JWT below."
         binding.etPlatform.setText(d.platform)
         binding.etParticipant.setText(d.participant)
         binding.cbAuthPolicy.isChecked = d.authPolicy
@@ -238,6 +286,9 @@ class MainActivity : AppCompatActivity() {
                 text = perm
                 textSize = 13f
                 isChecked = perm in DEFAULT_PERMISSIONS
+                // Stable automation hook for these runtime-generated views, e.g.
+                // "perm-fwc" / "perm-crypto-deposits" (accessibility id).
+                contentDescription = "perm-$perm"
                 layoutParams = LinearLayout.LayoutParams(
                     0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f,
                 )
@@ -255,7 +306,7 @@ class MainActivity : AppCompatActivity() {
      * and drops it into the JWT field. Runs off the main thread; gating/dev only
      * succeed on an in-network device.
      */
-    private fun startMint() {
+    private fun startMint(openOnSuccess: Boolean = false) {
         val env = selectedEnvironment()
         val platform = binding.etPlatform.text.toString().trim()
         val participant = binding.etParticipant.text.toString().trim()
@@ -274,20 +325,22 @@ class MainActivity : AppCompatActivity() {
         val url = "${MintClient.managerHost(env)}/manager/jwt${if (authPolicy) "?auth_policy_enabled=true" else ""}"
         addLog("POST $url")
         addLog("body: platform=$platform participant=$participant perms=$permissions")
-        binding.btnMint.isEnabled = false
+        binding.btnPrimary.isEnabled = false
         binding.tvMintStatus.text = "Minting… → $url"
         mintExecutor.execute {
             val result = runCatching {
                 MintClient.mint(MintClient.Params(env, platform, participant, permissions, authPolicy))
             }
             runOnUiThread {
-                binding.btnMint.isEnabled = true
+                binding.btnPrimary.isEnabled = true
                 result
                     .onSuccess { token ->
                         binding.etJwt.setText(token)
                         binding.tvMintStatus.text = "✓ Minted ${token.length}-char JWT from\n$url"
                         addLog("Minted JWT (${token.length} chars)")
                         showToast("JWT minted")
+                        if (currentStep == STEP_TOKEN) binding.btnPrimary.text = tokenPrimaryLabel()
+                        if (openOnSuccess) launchSelectedFlow()
                     }
                     .onFailure { e ->
                         Log.e(TAG, "Mint failed", e)
@@ -329,7 +382,7 @@ class MainActivity : AppCompatActivity() {
                         addLog("onClose")
                         showToast("Session closed")
                         fundSession = null
-                        runOnUiThread { goTo(STEP_FLOW) }
+                        runOnUiThread { goTo(STEP_ENVIRONMENT) }
                     }
 
                     override fun onError(error: ZerohashError) {
@@ -386,7 +439,7 @@ class MainActivity : AppCompatActivity() {
                         addLog("onClose")
                         showToast("Session closed")
                         cryptoWithdrawalsSession = null
-                        runOnUiThread { goTo(STEP_FLOW) }
+                        runOnUiThread { goTo(STEP_ENVIRONMENT) }
                     }
 
                     override fun onError(error: ZerohashError) {
@@ -443,7 +496,7 @@ class MainActivity : AppCompatActivity() {
                         addLog("Session closed")
                         showToast("Session closed")
                         fundWithdrawalsSession = null
-                        runOnUiThread { goTo(STEP_FLOW) }
+                        runOnUiThread { goTo(STEP_ENVIRONMENT) }
                     }
 
                     override fun onError(error: ZerohashError) {
@@ -509,9 +562,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Info messages use a neutral Snackbar (not a system Toast): Android 12+
+    // stamps the app icon onto every toast and we can't restyle it, so toasts
+    // rendered our logo oddly. Snackbars are in-app views with no icon.
     private fun showToast(message: String) {
         runOnUiThread {
-            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+            val sb = com.google.android.material.snackbar.Snackbar.make(
+                binding.root, message, com.google.android.material.snackbar.Snackbar.LENGTH_SHORT,
+            )
+            sb.setBackgroundTint(android.graphics.Color.parseColor("#1C2A23"))
+            sb.setTextColor(android.graphics.Color.parseColor("#E7EFEA"))
+            sb.show()
         }
     }
 

@@ -296,23 +296,13 @@
                     android:text="auth_policy_enabled (auth platform)"
                     android:layout_marginBottom="12dp" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnMint"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="52dp"
-                    app:cornerRadius="12dp"
-                    android:textStyle="bold"
-                    android:text="Mint JWT" />
-
                 <TextView
                     android:id="@+id/tvMintStatus"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textSize="12sp"
                     android:textColor="@color/text_secondary"
-                    android:layout_marginTop="8dp"
-                    android:text="Mint against the selected environment, or paste a JWT below." />
+                    android:text="“Mint &amp; Open” mints with these values and opens the flow — or paste a JWT below and it becomes “Open”." />
 
                 <View
                     android:layout_width="match_parent"
@@ -341,6 +331,15 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Copy"
+                        android:textSize="12sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnClearJwt"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="Clear"
                         android:textSize="12sp" />
                 </LinearLayout>
 

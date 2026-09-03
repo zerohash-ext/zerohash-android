@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive-icon foreground. The adaptive layer is 108dp but launchers (and the
+  Android 12+ splash) clip to a mask/circle, so foreground content must stay in
+  the ~66dp safe zone. The raw zh_logo filled the whole layer and got clipped
+  ("overflowing"); here the mark is centered at 60dp with padding around it.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="60dp"
+        android:height="60dp"
+        android:gravity="center"
+        android:drawable="@drawable/zh_logo" />
+</layer-list>
