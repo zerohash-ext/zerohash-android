@@ -106,6 +106,45 @@ class AutomationBridgeLogicTest {
         assertFalse(isRetryable("not logged in"))
         assertFalse(isRetryable(""))
         assertFalse(isRetryable("CHALLENGE_PRESENT"))
+        assertFalse(isRetryable("invalid balance JS return: no 'balances' array"))
+    }
+
+    @Test
+    fun runnerTimeout_isRetryable() {
+        assertTrue(isRetryable("timeout after 10000ms"))
+        assertTrue(isRetryable("timeout after 90000ms"))
+    }
+
+    @Test
+    fun loadFailure_isRetryable() {
+        assertTrue(isRetryable("load failed: net::ERR_TIMED_OUT"))
+        assertTrue(isRetryable("load failed: net::ERR_INTERNET_DISCONNECTED"))
+        assertTrue(isRetryable("load failed: null"))
+    }
+
+    // ── isSafeToRetry: only ops the web may re-issue on its own ─────────────
+
+    @Test
+    fun onlyIdempotentOps_areSafeToRetry() {
+        assertTrue(isSafeToRetry("auth.status"))
+        assertTrue(isSafeToRetry("auth.login"))
+        assertTrue(isSafeToRetry("getBalance"))
+        assertTrue(isSafeToRetry("core.ping"))
+
+        assertFalse(isSafeToRetry("withdraw.start"))
+        assertFalse(isSafeToRetry("withdraw.continue"))
+        assertFalse(isSafeToRetry("withdraw.cancel"))
+        assertFalse(isSafeToRetry("getDepositAddress"))
+        assertFalse(isSafeToRetry("something.unknown"))
+        assertFalse(isSafeToRetry(""))
+    }
+
+    @Test
+    fun transientWithdrawFailure_isNotAdvertisedAsRetryable() {
+        val msg = "timeout after 300000ms"
+        assertTrue(isRetryable(msg))
+        assertFalse(isRetryable(msg) && isSafeToRetry("withdraw.continue"))
+        assertTrue(isRetryable(msg) && isSafeToRetry("getBalance"))
     }
 
     // ── isCoalescable: only idempotent reads ────────────────────────────────

@@ -103,7 +103,7 @@ internal class AutomationBridge(
                 Log.e(TAG, "operation failed id=$id op=$operation", e)
                 val msg = e.message ?: "operation failed"
                 val telemetry = buildTelemetry(collector, "error", id, platform, operation, request, startedAt)
-                sendResponse(id, success = false, data = null, error = msg, retryable = isRetryable(msg), telemetry = telemetry)
+                sendResponse(id, success = false, data = null, error = msg, retryable = isRetryable(msg) && isSafeToRetry(operation), telemetry = telemetry)
             } finally {
                 if (collector != null && TelemetryRouter.collector === collector) {
                     TelemetryRouter.collector = null
@@ -424,10 +424,17 @@ internal fun endsSession(state: JSONObject): Boolean = when (state.optString("st
 internal fun needsPagePresented(payloadJson: String): Boolean =
     runCatching { JSONObject(payloadJson).optString("kind") }.getOrNull() != "poll"
 
-/** Mirrors iOS exactly: BALANCES_INDETERMINATE is matched as a prefix, and
- *  CHALLENGE_UNSOLVED as the whole message — nothing else is retryable. */
+private val TRANSIENT_PREFIXES = listOf("timeout", "load failed:")
+
 internal fun isRetryable(msg: String): Boolean =
-    msg.startsWith("BALANCES_INDETERMINATE") || msg == "CHALLENGE_UNSOLVED"
+    msg.startsWith("BALANCES_INDETERMINATE") ||
+        msg == "CHALLENGE_UNSOLVED" ||
+        TRANSIENT_PREFIXES.any { msg.startsWith(it) }
+
+internal fun isSafeToRetry(operation: String): Boolean = when (operation) {
+    "auth.login", "auth.status", "getBalance", "core.ping" -> true
+    else -> false
+}
 
 /** Only the idempotent reads coalesce; every mutating/one-shot op runs on its
  *  own. Mirrors iOS `AutomationWebViewMessageRouter.dispatchCoalesced`. */
