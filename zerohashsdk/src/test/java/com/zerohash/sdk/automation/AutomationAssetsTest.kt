@@ -22,6 +22,7 @@ class AutomationAssetsTest {
             "auth-choose-2fa-method.js",
             "auth-detect-unsupported-2fa.js",
             "coinbase-balance-queries.js",
+            "coinbase-idv-gate.js",
             "dom-helpers.js",
             "get-balance.js",
             "get-deposit-address.js",

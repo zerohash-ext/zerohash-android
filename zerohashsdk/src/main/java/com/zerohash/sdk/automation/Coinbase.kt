@@ -210,7 +210,7 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
             overlayOptions = overlay,
             showOverlay = showOverlay,
             waitForChallengeClearance = true,
-            preludeAssets = listOf("automation/dom-helpers.js"),
+            preludeAssets = listOf("automation/dom-helpers.js", "automation/coinbase-idv-gate.js"),
             paramsJson = payloadJson,
         ) { host ->
             when (host) {
@@ -306,8 +306,8 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
         return JSONObject().put("cancelled", raw?.optBoolean("cancelled", false) ?: false)
     }
 
-    /** dom-helpers + withdraw.js (both idempotent). Each asset is read+decoded once
-     *  per process by [readAutomationAsset]'s cache, so no local cache is needed. */
     private fun withdrawPrelude(session: AutomationSession): String =
-        session.asset("automation/dom-helpers.js") + "\n" + session.asset("automation/withdraw.js")
+        session.asset("automation/dom-helpers.js") + "\n" +
+            session.asset("automation/coinbase-idv-gate.js") + "\n" +
+            session.asset("automation/withdraw.js")
 }
