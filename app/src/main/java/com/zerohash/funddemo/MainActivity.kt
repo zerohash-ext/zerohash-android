@@ -2,10 +2,11 @@ package com.zerohash.funddemo
 
 import android.os.Bundle
 import android.util.Log
-import android.widget.CheckBox
-import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import com.zerohash.funddemo.databinding.ActivityMainBinding
 import com.zerohash.sdk.ZerohashError
 import com.zerohash.sdk.ZerohashSDK
@@ -29,7 +30,6 @@ class MainActivity : AppCompatActivity() {
     private var cryptoWithdrawalsSession: ZerohashCryptoWithdrawalsSession? = null
     private var fundWithdrawalsSession: ZerohashFundWithdrawalsSession? = null
     private val mintExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
-    private val permissionCheckboxes = mutableListOf<CheckBox>()
     private var currentStep = 0
 
     companion object {
@@ -47,21 +47,8 @@ class MainActivity : AppCompatActivity() {
             "Step 3 of 3 · Token",
         )
 
-        /**
-         * SDK permissions the kyc-mock-platform-server `/manager/jwt` accepts,
-         * in the server's switch order (see kyc-mock-platform-server
-         * internal/service/handlers.go). Rendered as a checkbox grid.
-         */
-        private val SDK_PERMISSIONS = listOf(
-            "onboarding", "update-participant", "csp-active", "csp-recovery",
-            "fiat-deposits", "fiat-withdrawals", "crypto-withdrawals", "crypto-buy",
-            "crypto-sell", "fwc", "participant-profile", "crypto-account-link",
-            "crypto-payouts", "crypto-pay", "fiat-account-link", "crypto-deposits",
-            "recovery"
-        )
-
-        /** Ticked by default — the auth Fund platform's permission set. */
-        private val DEFAULT_PERMISSIONS = setOf("fwc", "crypto-deposits")
+        // Permissions are derived per flow (see flowPermissions) rather than
+        // picked from a checkbox grid.
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,7 +56,27 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        applyWindowInsets()
         setupUI()
+    }
+
+    /**
+     * Edge-to-edge is mandatory at targetSdk 35+ (this app targets 36), so the
+     * window draws behind the system bars. Inset the header below the status bar
+     * and — the reported bug — lift the persistent footer's buttons above the
+     * navigation/gesture bar so they aren't clipped or untappable on devices with
+     * a bottom system bar.
+     */
+    private fun applyWindowInsets() {
+        val footerPadBottom = binding.llFooter.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            binding.root.updatePadding(top = bars.top, left = bars.left, right = bars.right)
+            binding.llFooter.updatePadding(bottom = footerPadBottom + bars.bottom)
+            WindowInsetsCompat.CONSUMED
+        }
     }
 
     private fun setupUI() {
@@ -83,7 +90,6 @@ class MainActivity : AppCompatActivity() {
                 "test internal environments. Cert and Production work normally."
         }
 
-        buildPermissionGrid(binding.llPermissions)
         setupAutomationLocators()
 
         // Platform/participant are 6-char all-caps codes.
@@ -112,14 +118,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Keep the Token-step button in sync as the JWT field changes (paste/clear/mint).
-        binding.etJwt.addTextChangedListener(object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) {
-                if (currentStep == STEP_TOKEN) binding.btnPrimary.text = tokenPrimaryLabel()
-            }
-        })
+        // Two token modes: mint a JWT on the fly, or paste an existing one. The
+        // toggle swaps which inputs are shown and what the footer button does.
+        binding.toggleMode.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (isChecked) applyTokenMode(checkedId == R.id.btnModeMint)
+        }
+        binding.toggleMode.check(R.id.btnModeMint)
 
         goTo(STEP_ENVIRONMENT)
     }
@@ -150,6 +154,10 @@ class MainActivity : AppCompatActivity() {
         binding.rbFlowFundWd.contentDescription = "flow-fund-withdrawals"
         binding.etPlatform.contentDescription = "input-platform"
         binding.etParticipant.contentDescription = "input-participant"
+        binding.etApplicationId.contentDescription = "input-application-id"
+        binding.etDeviceId.contentDescription = "input-device-id"
+        binding.btnModeMint.contentDescription = "mode-mint"
+        binding.btnModePaste.contentDescription = "mode-paste"
         binding.cbAuthPolicy.contentDescription = "toggle-auth-policy"
         binding.etJwt.contentDescription = "input-jwt"
         binding.btnCopyJwt.contentDescription = "action-copy-jwt"
@@ -159,9 +167,16 @@ class MainActivity : AppCompatActivity() {
         binding.btnPrimary.contentDescription = "action-primary"
     }
 
-    /** Token-step primary label: mint first if there's no JWT yet, else just open. */
+    /** Token-step primary label depends on the selected mode. */
     private fun tokenPrimaryLabel(): String =
-        if (binding.etJwt.text.toString().isBlank()) "Mint & Open" else "Open"
+        if (binding.toggleMode.checkedButtonId == R.id.btnModePaste) "Open" else "Mint & Open"
+
+    /** Show the inputs for the chosen token mode and refresh the footer action. */
+    private fun applyTokenMode(mintMode: Boolean) {
+        binding.llMintMode.visibility = if (mintMode) android.view.View.VISIBLE else android.view.View.GONE
+        binding.llPasteMode.visibility = if (mintMode) android.view.View.GONE else android.view.View.VISIBLE
+        if (currentStep == STEP_TOKEN) binding.btnPrimary.text = tokenPrimaryLabel()
+    }
 
     /** Primary footer action, per the current step. */
     private fun onPrimary() {
@@ -172,12 +187,16 @@ class MainActivity : AppCompatActivity() {
                 goTo(STEP_TOKEN)
             }
             STEP_TOKEN ->
-                if (binding.etJwt.text.toString().isBlank()) {
-                    // No token yet → mint, then open on success (failures surface
-                    // inline in the status line and as a red error bar).
-                    startMint(openOnSuccess = true)
+                if (binding.toggleMode.checkedButtonId == R.id.btnModePaste) {
+                    if (binding.etJwt.text.toString().isBlank()) {
+                        showError("Paste a JWT first")
+                    } else {
+                        launchSelectedFlow()
+                    }
                 } else {
-                    launchSelectedFlow()
+                    // Mint a fresh JWT from the inputs, then open on success
+                    // (failures surface inline + as a red error bar).
+                    startMint(openOnSuccess = true)
                 }
         }
     }
@@ -245,11 +264,13 @@ class MainActivity : AppCompatActivity() {
         // Start each run with a clean JWT so we always re-mint for the chosen
         // env/flow (footer resets to "Mint & Open" via the text-watcher).
         binding.etJwt.setText("")
-        binding.tvMintStatus.text = "“Mint & Open” mints with these values and opens the flow — or paste a JWT below."
+        binding.toggleMode.check(R.id.btnModeMint)
+        applyTokenMode(true)
+        binding.tvFlowPermissions.text = d.permissions.joinToString(", ")
+        binding.tvMintStatus.text = "“Mint & Open” generates a JWT from these values and opens the flow."
         binding.etPlatform.setText(d.platform)
         binding.etParticipant.setText(d.participant)
         binding.cbAuthPolicy.isChecked = d.authPolicy
-        permissionCheckboxes.forEach { it.isChecked = it.text.toString() in d.permissions }
         addLog(
             "Defaults ${selectedEnvironment().name}/${flowLabel()}: " +
                 "platform=${d.platform.ifBlank { "—" }} participant=${d.participant.ifBlank { "—" }} " +
@@ -263,43 +284,8 @@ class MainActivity : AppCompatActivity() {
         else -> "Fund"
     }
 
-    /**
-     * Two-column checkbox grid of the accepted SDK permissions, built into
-     * [container]. [DEFAULT_PERMISSIONS] start ticked.
-     */
-    private fun buildPermissionGrid(container: LinearLayout) {
-        container.removeAllViews()
-        permissionCheckboxes.clear()
-        var row: LinearLayout? = null
-        SDK_PERMISSIONS.forEachIndexed { i, perm ->
-            if (i % 2 == 0) {
-                row = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                    )
-                }
-                container.addView(row)
-            }
-            val cb = CheckBox(this).apply {
-                text = perm
-                textSize = 13f
-                isChecked = perm in DEFAULT_PERMISSIONS
-                // Stable automation hook for these runtime-generated views, e.g.
-                // "perm-fwc" / "perm-crypto-deposits" (accessibility id).
-                contentDescription = "perm-$perm"
-                layoutParams = LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f,
-                )
-            }
-            permissionCheckboxes.add(cb)
-            row?.addView(cb)
-        }
-    }
-
-    private fun selectedPermissions(): List<String> =
-        permissionCheckboxes.filter { it.isChecked }.map { it.text.toString() }
+    // Permissions are derived from the selected flow (flowPermissions) and shown
+    // read-only in tvFlowPermissions — no runtime checkbox grid.
 
     /**
      * Mints a JWT for the selected environment from its kyc-mock-platform-server
@@ -310,26 +296,32 @@ class MainActivity : AppCompatActivity() {
         val env = selectedEnvironment()
         val platform = binding.etPlatform.text.toString().trim()
         val participant = binding.etParticipant.text.toString().trim()
-        val permissions = selectedPermissions()
+        val permissions = flowPermissions(binding.rgFlow.checkedRadioButtonId)
         val authPolicy = binding.cbAuthPolicy.isChecked
+        val applicationId = binding.etApplicationId.text.toString().trim()
+        val deviceId = binding.etDeviceId.text.toString().trim()
 
         if (platform.isEmpty() || participant.isEmpty()) {
             showError("Enter platform and participant codes")
             return
         }
-        if (permissions.isEmpty()) {
-            showError("Tick at least one permission")
-            return
-        }
 
         val url = "${MintClient.managerHost(env)}/manager/jwt${if (authPolicy) "?auth_policy_enabled=true" else ""}"
         addLog("POST $url")
-        addLog("body: platform=$platform participant=$participant perms=$permissions")
+        addLog(
+            "body: platform=$platform participant=$participant perms=$permissions" +
+                (if (applicationId.isNotBlank()) " appId=$applicationId" else "") +
+                (if (deviceId.isNotBlank()) " deviceId=$deviceId" else "")
+        )
         binding.btnPrimary.isEnabled = false
         binding.tvMintStatus.text = "Minting… → $url"
         mintExecutor.execute {
             val result = runCatching {
-                MintClient.mint(MintClient.Params(env, platform, participant, permissions, authPolicy))
+                MintClient.mint(
+                    MintClient.Params(
+                        env, platform, participant, permissions, authPolicy, applicationId, deviceId,
+                    )
+                )
             }
             runOnUiThread {
                 binding.btnPrimary.isEnabled = true

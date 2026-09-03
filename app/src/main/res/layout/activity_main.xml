@@ -230,6 +230,40 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
+                <!-- Two ways to get a JWT: mint one on the fly (platform + participant)
+                     or paste an existing one. The toggle swaps which inputs show. -->
+                <com.google.android.material.button.MaterialButtonToggleGroup
+                    android:id="@+id/toggleMode"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    app:singleSelection="true"
+                    app:selectionRequired="true">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnModeMint"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Mint new" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnModePaste"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Paste JWT" />
+                </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                <!-- MINT MODE: generate a JWT on the fly from platform + participant. -->
+                <LinearLayout
+                    android:id="@+id/llMintMode"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
                 <!-- Platform + participant are 6-char alphanumeric codes, so they
                      sit side by side rather than spanning the full width. -->
                 <LinearLayout
@@ -275,18 +309,60 @@
                     </com.google.android.material.textfield.TextInputLayout>
                 </LinearLayout>
 
+                <!-- Optional per-platform identity. Some flows require them; sent to
+                     the mint only when non-empty (see Confluence: Device IDs). -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="14dp">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="12dp"
+                        android:hint="Application ID (optional)">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etApplicationId"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="text"
+                            android:maxLines="1" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="8dp"
+                        android:hint="Device ID (optional)">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etDeviceId"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="text"
+                            android:maxLines="1" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+
                 <TextView
                     style="@style/Label.Section"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Permissions" />
+                    android:text="Permissions (from flow)" />
 
-                <!-- Populated at runtime (MainActivity.buildPermissionGrid). -->
-                <LinearLayout
-                    android:id="@+id/llPermissions"
+                <!-- Derived from the selected flow; set at runtime (read-only). -->
+                <TextView
+                    android:id="@+id/tvFlowPermissions"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
+                    android:fontFamily="monospace"
+                    android:textSize="13sp"
                     android:layout_marginBottom="8dp" />
 
                 <CheckBox
@@ -302,13 +378,16 @@
                     android:layout_height="wrap_content"
                     android:textSize="12sp"
                     android:textColor="@color/text_secondary"
-                    android:text="“Mint &amp; Open” mints with these values and opens the flow — or paste a JWT below and it becomes “Open”." />
+                    android:text="“Mint &amp; Open” generates a JWT from these values and opens the flow." />
+                </LinearLayout>
 
-                <View
+                <!-- PASTE MODE: use an existing JWT verbatim (hidden by default). -->
+                <LinearLayout
+                    android:id="@+id/llPasteMode"
                     android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="@color/divider"
-                    android:layout_marginVertical="14dp" />
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -347,7 +426,7 @@
                     style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="Minted or pasted JWT"
+                    android:hint="Paste JWT"
                     android:layout_marginBottom="14dp">
 
                     <com.google.android.material.textfield.TextInputEditText
@@ -360,6 +439,13 @@
                         android:textSize="12sp"
                         android:fontFamily="monospace" />
                 </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/divider"
+                    android:layout_marginVertical="14dp" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -407,6 +493,7 @@
 
     <!-- Persistent step footer -->
     <LinearLayout
+        android:id="@+id/llFooter"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"

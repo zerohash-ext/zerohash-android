@@ -33,6 +33,9 @@ object MintClient {
         val participant: String,
         val permissions: List<String>,
         val authPolicyEnabled: Boolean,
+        /** Optional per-platform identity (some flows require them); sent only when non-blank. */
+        val applicationId: String = "",
+        val deviceId: String = "",
     )
 
     /**
@@ -47,6 +50,8 @@ object MintClient {
             put("participant_code", p.participant)
             put("permissions", JSONArray(p.permissions))
             put("reference_id", UUID.randomUUID().toString())
+            if (p.applicationId.isNotBlank()) put("application_id", p.applicationId)
+            if (p.deviceId.isNotBlank()) put("device_id", p.deviceId)
         }
 
         val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
