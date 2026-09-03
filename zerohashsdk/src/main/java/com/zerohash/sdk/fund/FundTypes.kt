@@ -104,7 +104,10 @@ data class FundDepositEvent(
     val statusDetails: String?,
     /** When the status occurred (ISO 8601). */
     val statusOccurredAt: String?,
-    /** True once the deposit is processed. False while pending, verifying or failed. */
+    /**
+     * True once the deposit is processed **and** account matching is not holding
+     * it back. False while pending, verifying or failed.
+     */
     val success: Boolean,
     val assetId: String?,
     val networkId: String?,
@@ -122,20 +125,40 @@ data class FundDepositEvent(
         private fun JSONObject.optStringOrNull(key: String): String? =
             if (has(key) && !isNull(key)) getString(key) else null
 
+        /**
+         * The one status the shared integrations flow treats as success. Unlike
+         * Auth — which also accepts CONFIRMED, gated on a profile flag that never
+         * reaches the bridge — `useHandleDepositStatus` in `integrations-flow`
+         * shows the success screen only at PROCESSED, so CONFIRMED is still in
+         * flight here.
+         */
+        private const val SUCCESS_STATUS = "processed"
+
+        /**
+         * Account-matching states the web flow routes away from success before it
+         * ever looks at the status: PENDING shows the verifying screen, INVALID
+         * and ERROR show the failed screen. Absent, VALID, or any value we don't
+         * know yet falls through to the status check, exactly as the web hook
+         * does.
+         */
+        private val NON_SUCCESS_MATCHING_STATUSES = setOf("pending", "invalid", "error")
+
         fun fromJSON(data: JSONObject?): FundDepositEvent {
             val status = data?.optJSONObject("status")
             val statusValue = status?.optStringOrNull("value")
             val validation = data?.optJSONObject("accountMatchingValidation")
+            val matchingStatus = validation?.optStringOrNull("status")
             return FundDepositEvent(
                 depositId = data?.optStringOrNull("depositId"),
                 status = statusValue,
                 statusDetails = status?.optStringOrNull("details"),
                 statusOccurredAt = status?.optStringOrNull("occurredAt"),
-                success = statusValue?.lowercase() == "processed",
+                success = statusValue?.lowercase() == SUCCESS_STATUS &&
+                    matchingStatus?.lowercase() !in NON_SUCCESS_MATCHING_STATUSES,
                 assetId = data?.optStringOrNull("assetId"),
                 networkId = data?.optStringOrNull("networkId"),
                 amount = data?.optStringOrNull("amount"),
-                accountMatchingStatus = validation?.optStringOrNull("status"),
+                accountMatchingStatus = matchingStatus,
                 accountMatchingReason = validation?.optStringOrNull("reason"),
                 rawData = data
             )

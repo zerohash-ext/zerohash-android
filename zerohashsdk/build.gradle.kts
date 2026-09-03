@@ -82,10 +82,10 @@ if (project.hasProperty("mavenCentralRelease")) {
     apply(plugin = "com.vanniktech.maven.publish")
 
     configure<com.vanniktech.maven.publish.MavenPublishBaseExtension> {
-        // Staging deployment, released by hand in the Portal UI.
+        // Publishes and releases in one step — no manual promote in the Portal UI.
         publishToMavenCentral(
             com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL,
-            automaticRelease = false,
+            automaticRelease = true,
         )
         signAllPublications()
 

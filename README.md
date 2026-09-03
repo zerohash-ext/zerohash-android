@@ -27,7 +27,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.zerohash:zerohash-android:1.3.1")
+    implementation("com.zerohash:zerohash-android:1.3.2")
 }
 ```
 
@@ -242,7 +242,8 @@ A deposit funded from an **external source** (the "connect an account" path) rea
 `onDeposit` **only**, with a `FundDepositEvent`. That callback is a *status*, not an
 outcome: it also fires while account matching is verifying, and can arrive more than
 once for the same deposit. Read the outcome off `event.status` (`PROCESSED`,
-`FAILED`, `PENDING`) or the derived `event.success`, and use
+`FAILED`, `PENDING`) or the derived `event.success` — true once the status is
+`PROCESSED` **and** account matching is not holding the deposit back — and use
 `event.accountMatchingStatus` / `event.accountMatchingReason` for a name-mismatch
 failure — that reason is the only explanation available anywhere in the stack. Do
 not treat the call itself as completion.
