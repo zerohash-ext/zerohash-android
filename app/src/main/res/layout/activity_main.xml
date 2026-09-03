@@ -257,6 +257,15 @@
                         android:text="Paste JWT" />
                 </com.google.android.material.button.MaterialButtonToggleGroup>
 
+                <!-- Minting hits internal, VPN-gated kyc-mock hosts. -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_secondary"
+                    android:layout_marginBottom="12dp"
+                    android:text="Minting reaches an internal, VPN-gated server, so it only works on an emulator running on a zerohash work machine with the Netskope CA installed. On a real or off-network device, use “Paste JWT” instead." />
+
                 <!-- MINT MODE: generate a JWT on the fly from platform + participant. -->
                 <LinearLayout
                     android:id="@+id/llMintMode"

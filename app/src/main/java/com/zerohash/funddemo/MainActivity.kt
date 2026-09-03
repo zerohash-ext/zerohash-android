@@ -264,8 +264,12 @@ class MainActivity : AppCompatActivity() {
         // Start each run with a clean JWT so we always re-mint for the chosen
         // env/flow (footer resets to "Mint & Open" via the text-watcher).
         binding.etJwt.setText("")
-        binding.toggleMode.check(R.id.btnModeMint)
-        applyTokenMode(true)
+        // Minting hits internal, VPN-gated hosts. Production is the env people test
+        // on real devices, so default it to Paste-JWT (mint there won't work off a
+        // work-machine emulator); other envs default to Mint.
+        val pasteDefault = selectedEnvironment() == Environment.PRODUCTION
+        binding.toggleMode.check(if (pasteDefault) R.id.btnModePaste else R.id.btnModeMint)
+        applyTokenMode(!pasteDefault)
         binding.tvFlowPermissions.text = d.permissions.joinToString(", ")
         binding.tvMintStatus.text = "“Mint & Open” generates a JWT from these values and opens the flow."
         binding.etPlatform.setText(d.platform)
