@@ -1,5 +1,7 @@
 # zerohash-android
 
+[![Maven Central](https://img.shields.io/maven-central/v/com.zerohash/zerohash-android?label=Maven%20Central)](https://central.sonatype.com/artifact/com.zerohash/zerohash-android)
+
 Kotlin SDK that embeds zerohash flows into a native Android app — **Fund**
 (account funding / pay-to-settle), **Crypto Deposits** (deposit crypto, to a Zero
 Hash wallet or your own address), **Crypto Withdrawals** (withdraw crypto to an
@@ -28,7 +30,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.zerohash:zerohash-android:1.3.2")
+    implementation("com.zerohash:zerohash-android:1.4.0")
 }
 ```
 
