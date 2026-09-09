@@ -1,4 +1,4 @@
-package com.zerohash.sdk.fundwithdrawals
+package com.zerohash.sdk.cryptodeposits
 
 import android.app.Activity
 import android.content.Intent
@@ -14,35 +14,34 @@ import com.zerohash.sdk.internal.JwtValidator
 import com.zerohash.sdk.ui.WebViewActivity
 
 /**
- * Manages the lifecycle of a Fund Withdrawals session.
+ * Manages the lifecycle of a Crypto Deposits session.
  *
  * Mirrors [com.zerohash.sdk.fund.ZerohashFundSession]: validates the JWT, then
- * launches [WebViewActivity] pointed at the `#fund-withdrawals` route. The
- * completion payload arrives over the bridge as a `fund-withdrawal` message.
- *
- * The payout destination is resolved from the JWT's `external_account_id`, so the
- * JWT must be minted with one — there is no destination picker in this flow.
+ * launches [WebViewActivity] pointed at the `#crypto-deposits` route. A deposit
+ * made through the flow's own screens arrives over the bridge as a
+ * `crypto-deposit` (or `transaction-failed`) message; one funded from a
+ * connected external account arrives as `deposit-status`.
  */
-class ZerohashFundWithdrawalsSession internal constructor(
+class ZerohashCryptoDepositsSession internal constructor(
     private val jwt: String,
     private val environment: Environment,
     private val theme: Theme,
     private val allowList: ZerohashAllowList = ZerohashAllowList.DEFAULT,
-    private val callbacks: FundWithdrawalsCallbacks
+    private val callbacks: CryptoDepositsCallbacks
 ) {
     private var session: ZerohashSession? = null
     private var hasPresented = false
 
     companion object {
-        private const val TAG = "ZHFundWithdrawals"
+        private const val TAG = "ZHCryptoDeposits"
         // Hash route served by the zerohash mobile web app (createHashRouter,
-        // base "/mobile"). The route embeds the Fund Withdrawals web component
+        // base "/mobile"). The route embeds the Crypto Deposits web component
         // + iframe.
-        private const val PATH = "/mobile/#fund-withdrawals"
+        private const val PATH = "/mobile/#crypto-deposits"
     }
 
     /**
-     * Present the Fund Withdrawals session.
+     * Present the Crypto Deposits session.
      *
      * @param activity The activity to launch from
      * @return The created [ZerohashSession], or null if already presented or the
@@ -54,10 +53,7 @@ class ZerohashFundWithdrawalsSession internal constructor(
             return null
         }
 
-        // Validate JWT structure and expiry before proceeding. Kept in step with
-        // the Fund and Crypto Withdrawals sessions on purpose: a malformed or
-        // expired token is reported as a ConfigurationError and no WebView is
-        // launched, so the host gets the same contract on every flow.
+        // Validate JWT structure and expiry before proceeding
         val validationResult = JwtValidator.validate(jwt)
         if (validationResult.isFailure) {
             val msg = validationResult.exceptionOrNull()?.message ?: "JWT validation failed"
@@ -68,14 +64,14 @@ class ZerohashFundWithdrawalsSession internal constructor(
 
         hasPresented = true
 
-        val newSession = ZerohashSession(app = ZerohashApp.FUND_WITHDRAWALS)
+        val newSession = ZerohashSession(app = ZerohashApp.CRYPTO_DEPOSITS)
         session = newSession
 
         newSession.setOnCloseCallback {
             callbacks.onClose()
         }
 
-        val callbackHandler = FundWithdrawalsCallbackHandler(callbacks)
+        val callbackHandler = CryptoDepositsCallbackHandler(callbacks)
 
         val url = "https://${environment.webHost}$PATH"
 
@@ -102,7 +98,7 @@ class ZerohashFundWithdrawalsSession internal constructor(
             WebViewActivity.removeCallbackHandler(newSession.id)
             Log.e(TAG, "Failed to start WebViewActivity", e)
             callbacks.onError(
-                ZerohashError.UnknownError("Failed to open Fund Withdrawals: ${e.message}")
+                ZerohashError.UnknownError("Failed to open Crypto Deposits: ${e.message}")
             )
         }
 

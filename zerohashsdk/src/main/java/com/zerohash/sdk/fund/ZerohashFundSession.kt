@@ -34,7 +34,7 @@ class ZerohashFundSession internal constructor(
     private var hasPresented = false
 
     companion object {
-        private const val TAG = "ZerohashFundSession"
+        private const val TAG = "ZHFund"
         // Hash route served by the zerohash mobile web app (createHashRouter,
         // base "/mobile"). The route embeds the Fund web component + iframe.
         private const val PATH = "/mobile/#fund"

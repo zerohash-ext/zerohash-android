@@ -1,17 +1,18 @@
 # zerohash-android
 
 Kotlin SDK that embeds zerohash flows into a native Android app — **Fund**
-(account funding / pay-to-settle), **Crypto Withdrawals** (withdraw crypto to an
+(account funding / pay-to-settle), **Crypto Deposits** (deposit crypto, to a Zero
+Hash wallet or your own address), **Crypto Withdrawals** (withdraw crypto to an
 address chosen in-flow) and **Fund Withdrawals** (withdraw fiat to crypto).
 It renders the zerohash mobile web app inside a hardened `WebView` and bridges
 it to a typed Kotlin API.
 
-| | |
-| --- | --- |
-| **Package** | `com.zerohash.sdk` |
-| **Min SDK** | Android API 21 (Android 5.0+) |
-| **Language** | Kotlin 1.9+ |
-| **Build** | Gradle 8.2+, JDK 17 |
+|              |                               |
+| ------------ | ----------------------------- |
+| **Package**  | `com.zerohash.sdk`            |
+| **Min SDK**  | Android API 21 (Android 5.0+) |
+| **Language** | Kotlin 1.9+                   |
+| **Build**    | Gradle 8.2+, JDK 17           |
 
 ## Installation
 
@@ -86,10 +87,10 @@ Only `jwt` and `callbacks` are required. `environment` defaults to `PRODUCTION`
 `Environment` selects which zerohash backend the flow runs against. Every
 `configure*` factory takes it as an optional parameter.
 
-| Value | Backend host | Use for |
-| --- | --- | --- |
-| `Environment.PRODUCTION` (default) | `sdk-cdn.zerohash.com` | Live partner traffic |
-| `Environment.SANDBOX` | `sdk-cdn.cert.zerohash.com` | Integration and testing |
+| Value                              | Backend host                | Use for                 |
+| ---------------------------------- | --------------------------- | ----------------------- |
+| `Environment.PRODUCTION` (default) | `sdk-cdn.zerohash.com`      | Live partner traffic    |
+| `Environment.SANDBOX`              | `sdk-cdn.cert.zerohash.com` | Integration and testing |
 
 ```kotlin
 fundSession = ZerohashSDK.configureFund(
@@ -101,6 +102,72 @@ fundSession = ZerohashSDK.configureFund(
 
 The JWT and the environment must match: a sandbox-minted JWT only works with
 `Environment.SANDBOX`, and a production JWT only with `Environment.PRODUCTION`.
+
+## Quick start — Crypto Deposits
+
+Walks the end user through depositing a crypto asset, either from a connected
+external account or by sending to an address the flow displays.
+
+Where the deposit lands is decided by the **JWT**, not by this call. A
+`deposit_details.to_address` claim routes it to that platform-owned address
+(**external mode**, where the flow shows no Zero Hash address or QR code), and
+its absence routes it to a zerohash internal wallet (**internal mode**).
+`CryptoDepositsCompletedEvent` is the same either way.
+
+```kotlin
+import com.zerohash.sdk.GenericEvent
+import com.zerohash.sdk.IntegrationsDepositEvent
+import com.zerohash.sdk.ZerohashError
+import com.zerohash.sdk.ZerohashSDK
+import com.zerohash.sdk.cryptodeposits.CryptoDepositsCallbacks
+import com.zerohash.sdk.cryptodeposits.CryptoDepositsCompletedEvent
+import com.zerohash.sdk.cryptodeposits.ZerohashCryptoDepositsSession
+
+class DepositActivity : AppCompatActivity() {
+
+    private var session: ZerohashCryptoDepositsSession? = null
+
+    private fun startDeposit(jwt: String) {
+        session = ZerohashSDK.configureCryptoDeposits(
+            jwt = jwt,
+            environment = Environment.PRODUCTION,
+            theme = Theme.SYSTEM,
+            callbacks = object : CryptoDepositsCallbacks {
+                override fun onClose() { /* the user closed the flow */ }
+
+                override fun onError(error: ZerohashError) { /* SDK / request error */ }
+
+                override fun onEvent(event: GenericEvent) { /* analytics */ }
+
+                override fun onCompleted(event: CryptoDepositsCompletedEvent) {
+                    // A deposit made through the flow's own screens.
+                }
+
+                override fun onFailed(event: CryptoDepositsCompletedEvent) {
+                    // The deposit itself failed — not an SDK error.
+                }
+
+                override fun onDeposit(event: IntegrationsDepositEvent) {
+                    // Funded from a connected account. A *status*, not an outcome:
+                    // it can repeat, and this path never reaches onCompleted.
+                }
+            }
+        )
+        session?.present(this)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        session?.cancel()
+    }
+}
+```
+
+**The two funding paths report on different callbacks** — the same split as Fund.
+A deposit made through the flow's own screens reaches `onCompleted` or
+`onFailed`; one funded from a connected external account reaches `onDeposit` and
+never touches the other two. So if you only handle `onCompleted`, you will miss
+every connected-account deposit.
 
 ## Quick start — Crypto Withdrawals
 
@@ -211,19 +278,19 @@ never fire. Request and configuration errors arrive on `onError`.
 
 Names match the zerohash web SDK, so the same handler names apply whether you
 integrate on web, Android or iOS — the flow is identified by the session you
-configure, not by the callback name. All three flows share the core set;
-`onDeposit` exists on Fund only and `onFailed` on Fund and Crypto Withdrawals
-only, matching the web SDK.
+configure, not by the callback name. All four flows share the core set;
+`onDeposit` exists on Fund and Crypto Deposits, and `onFailed` on all but Fund
+Withdrawals, matching the web SDK.
 
-| Callback | When it fires |
-| --- | --- |
-| `onCompleted(event)` | The transaction succeeded. `event` is `FundCompletedEvent`, `CryptoWithdrawalsCompletedEvent` or `FundWithdrawalsCompletedEvent` |
-| `onFailed(event)` | **Fund and Crypto Withdrawals only.** The transaction reached a terminal **failed** state. Same event type as `onCompleted` — which callback fired tells you the outcome |
-| `onError(error)` | An SDK or request error (network, auth, validation, config) |
-| `onLoaded()` | The flow's WebView content is ready (the web component mounted). Earlier than the web SDK's `onLoaded` — see the note below |
-| `onDeposit(event)` | **Fund only.** Status of a deposit funded from an external source. **Not terminal** — see below |
-| `onEvent(event)` | Lifecycle/analytics events, with the original identifier on `event.type` |
-| `onClose()` | The user closed the flow, or `cancel()` was called |
+| Callback             | When it fires                                                                                                                                                    |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `onCompleted(event)` | The transaction succeeded. `event` is `FundCompletedEvent`, `CryptoDepositsCompletedEvent`, `CryptoWithdrawalsCompletedEvent` or `FundWithdrawalsCompletedEvent` |
+| `onFailed(event)`    | **All but Fund Withdrawals.** The transaction reached a terminal **failed** state. Same event type as `onCompleted` — which callback fired tells you the outcome |
+| `onError(error)`     | An SDK or request error (network, auth, validation, config)                                                                                                      |
+| `onLoaded()`         | The flow's WebView content is ready (the web component mounted). Earlier than the web SDK's `onLoaded` — see the note below                                      |
+| `onDeposit(event)`   | **Fund and Crypto Deposits.** Status of a deposit funded from a connected external account, as an `IntegrationsDepositEvent`. **Not terminal** — see below       |
+| `onEvent(event)`     | Lifecycle/analytics events, with the original identifier on `event.type`                                                                                         |
+| `onClose()`          | The user closed the flow, or `cancel()` was called                                                                                                               |
 
 `onLoaded` fires when the WebView content is ready, which is **earlier** than the
 web SDK's `onLoaded` (that one fires once the flow has booted and rendered). The
@@ -231,15 +298,21 @@ web layer's own ready signal is not currently forwarded over the bridge, so do n
 treat this as "the user can see the flow" — dismissing a loading spinner here can
 uncover a still-blank WebView.
 
-Fund reports a deposit two ways, depending on how the money arrived — matching the
-web SDK exactly.
+Fund and Crypto Deposits each report a deposit two ways, depending on how the
+money arrived — matching the web SDK exactly.
 
 A **manual or Pay** deposit is terminal, and reaches `onCompleted`/`onFailed` with
 all seven `FundCompletedEvent` fields (`transactionId`, `fundId`, `assetSymbol`,
 `amount`, `depositAddress`, `network`, `notionalAmount`).
 
+Crypto Deposits is the same shape, with `CryptoDepositsCompletedEvent`
+(`depositId`, `assetSymbol`, `network`, `amount`) on its own screens.
+
 A deposit funded from an **external source** (the "connect an account" path) reaches
-`onDeposit` **only**, with a `FundDepositEvent`. That callback is a *status*, not an
+`onDeposit` **only**, with an `IntegrationsDepositEvent`. One type serves both
+flows because the payload is built by the shared web hook rather than by either
+SDK. (`FundDepositEvent` is a typealias for it, kept so existing Fund code still
+compiles.) That callback is a _status_, not an
 outcome: it also fires while account matching is verifying, and can arrive more than
 once for the same deposit. Read the outcome off `event.status` (`PROCESSED`,
 `FAILED`, `PENDING`) or the derived `event.success` — true once the status is
@@ -252,8 +325,8 @@ A failed transaction is a flow outcome, **not** an error. Implement both if you
 need to cover every unsuccessful path. `onFailed`, `onLoaded` and `onDeposit` have no-op
 defaults, so override them only if you use them.
 
-The flows differ in how a failure reaches you. A failed **deposit** (Fund) invokes
-`onFailed` only. A failed **crypto withdrawal** invokes `onFailed` *and*
+The flows differ in how a failure reaches you. A failed **deposit** (Fund or
+Crypto Deposits) invokes `onFailed` only. A failed **crypto withdrawal** invokes `onFailed` _and_
 `onError`, for backwards compatibility with hosts written before `onFailed`
 existed — `onError` was that flow's only failure signal. Build against `onFailed`
 in both cases; if you implement both callbacks, guard against counting a failed
@@ -269,12 +342,12 @@ otherwise — arrives on `onError`.
 `ZerohashFundSession`, `ZerohashCryptoWithdrawalsSession` and
 `ZerohashFundWithdrawalsSession` all expose the same lifecycle:
 
-| Member | Description |
-| --- | --- |
-| `present(activity: Activity): ZerohashSession?` | Launches the flow's WebView activity; returns `null` if the JWT fails validation |
-| `cancel()` | Closes the session if it is active |
-| `isActive(): Boolean` | Whether the session is currently active |
-| `allowList: ZerohashAllowList` | Optional `configure*` param — hosts the WebView may navigate to / load from (defaults to `ZerohashAllowList.DEFAULT`) |
+| Member                                          | Description                                                                                                           |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `present(activity: Activity): ZerohashSession?` | Launches the flow's WebView activity; returns `null` if the JWT fails validation                                      |
+| `cancel()`                                      | Closes the session if it is active                                                                                    |
+| `isActive(): Boolean`                           | Whether the session is currently active                                                                               |
+| `allowList: ZerohashAllowList`                  | Optional `configure*` param — hosts the WebView may navigate to / load from (defaults to `ZerohashAllowList.DEFAULT`) |
 
 ## Architecture
 

@@ -30,8 +30,8 @@ import com.zerohash.sdk.CallbackHandler
  *
  * The bridge contract matches the zerohash mobile web app:
  * inbound (web→native) `page-ready`, `content-ready`, `navigate`, `close`,
- * `error`, `event`, `deposit`, `deposit-status`, `crypto-withdrawal`,
- * `fund-withdrawal`, `transaction-failed`;
+ * `error`, `event`, `deposit`, `deposit-status`, `crypto-deposit`,
+ * `crypto-withdrawal`, `fund-withdrawal`, `transaction-failed`;
  * outbound (native→web) `jwt`, `config`.
  */
 internal class WebViewMessageHandler(
@@ -124,6 +124,7 @@ internal class WebViewMessageHandler(
                 "event" -> handleEvent(data)
                 "deposit" -> handleDeposit(data)
                 "deposit-status" -> handleDepositStatus(data)
+                "crypto-deposit" -> handleCryptoDeposit(data)
                 "crypto-withdrawal" -> handleCryptoWithdrawal(data)
                 "fund-withdrawal" -> handleFundWithdrawal(data)
                 "transaction-failed" -> handleTransactionFailed(data)
@@ -214,6 +215,19 @@ internal class WebViewMessageHandler(
     private fun handleDepositStatus(data: JSONObject?) {
         webView.post {
             callbackHandler.handleDepositStatus(data)
+        }
+    }
+
+    /**
+     * Crypto Deposits completion, posted as `crypto-deposit`. Its own message
+     * type rather than `deposit`, which already means Fund's completion here and
+     * carries a different shape. On a deposit funded from a connected account
+     * this follows the `deposit-status` messages; on a manual one it is the only
+     * report.
+     */
+    private fun handleCryptoDeposit(data: JSONObject?) {
+        webView.post {
+            callbackHandler.handleCryptoDeposit(data)
         }
     }
 

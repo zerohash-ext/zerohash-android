@@ -1,5 +1,7 @@
 package com.zerohash.sdk
 
+import com.zerohash.sdk.cryptodeposits.CryptoDepositsCallbacks
+import com.zerohash.sdk.cryptodeposits.ZerohashCryptoDepositsSession
 import com.zerohash.sdk.cryptowithdrawals.CryptoWithdrawalsCallbacks
 import com.zerohash.sdk.cryptowithdrawals.ZerohashCryptoWithdrawalsSession
 import com.zerohash.sdk.fund.FundCallbacks
@@ -12,9 +14,10 @@ import com.zerohash.sdk.fundwithdrawals.ZerohashFundWithdrawalsSession
  *
  * Provides static factory methods to create authenticated sessions with the
  * zerohash platform. This build ships the **Fund** flow (account funding /
- * pay-to-settle), the **Crypto Withdrawals** flow (withdraw to an address chosen
- * in-flow), and the **Fund Withdrawals** flow (withdraw to the pre-linked
- * account carried in the JWT).
+ * pay-to-settle), the **Crypto Deposits** flow (deposit crypto to a Zero Hash
+ * wallet or a platform-owned address), the **Crypto Withdrawals** flow (withdraw
+ * to an address chosen in-flow), and the **Fund Withdrawals** flow (withdraw to
+ * the pre-linked account carried in the JWT).
  */
 object ZerohashSDK {
 
@@ -52,6 +55,59 @@ object ZerohashSDK {
         callbacks: FundCallbacks
     ): ZerohashFundSession {
         return ZerohashFundSession(
+            jwt = jwt,
+            environment = environment,
+            theme = theme,
+            allowList = allowList,
+            callbacks = callbacks
+        )
+    }
+
+    /**
+     * Configure and create a Crypto Deposits session.
+     *
+     * Walks the end user through depositing a crypto asset, either from a
+     * connected external account or by sending to an address the flow displays.
+     *
+     * Where the deposit lands is decided by the JWT, not by this call: a
+     * `deposit_details.to_address` claim routes it to that platform-owned address
+     * (external mode), and its absence routes it to a Zero Hash internal wallet
+     * (internal mode).
+     *
+     * @param jwt JWT token for authentication
+     * @param environment Environment to connect to (default: PRODUCTION)
+     * @param theme UI theme (default: SYSTEM)
+     * @param allowList Hosts the embedded WebView may navigate to / load from
+     * @param callbacks Callbacks for session events
+     * @return [ZerohashCryptoDepositsSession] instance ready to be presented
+     *
+     * Example usage:
+     * ```
+     * val session = ZerohashSDK.configureCryptoDeposits(
+     *     jwt = "your-jwt-token",
+     *     environment = Environment.PRODUCTION,
+     *     theme = Theme.SYSTEM,
+     *     callbacks = object : CryptoDepositsCallbacks {
+     *         override fun onClose() { /* handle close */ }
+     *         override fun onError(error: ZerohashError) { /* handle error */ }
+     *         override fun onEvent(event: GenericEvent) { /* handle event */ }
+     *         override fun onCompleted(event: CryptoDepositsCompletedEvent) { /* deposited */ }
+     *         override fun onFailed(event: CryptoDepositsCompletedEvent) { /* failed */ }
+     *         // Only for a deposit funded from a connected account, and it can repeat.
+     *         override fun onDeposit(event: IntegrationsDepositEvent) { /* status */ }
+     *     }
+     * )
+     * session.present(activity)
+     * ```
+     */
+    fun configureCryptoDeposits(
+        jwt: String,
+        environment: Environment = Environment.PRODUCTION,
+        theme: Theme = Theme.SYSTEM,
+        allowList: ZerohashAllowList = ZerohashAllowList.DEFAULT,
+        callbacks: CryptoDepositsCallbacks
+    ): ZerohashCryptoDepositsSession {
+        return ZerohashCryptoDepositsSession(
             jwt = jwt,
             environment = environment,
             theme = theme,

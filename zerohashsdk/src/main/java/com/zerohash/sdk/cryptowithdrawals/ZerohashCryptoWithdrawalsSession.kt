@@ -31,7 +31,7 @@ class ZerohashCryptoWithdrawalsSession internal constructor(
     private var hasPresented = false
 
     companion object {
-        private const val TAG = "ZerohashCryptoWithdrawalsSession"
+        private const val TAG = "ZHCryptoWithdrawals"
         // Hash route served by the zerohash mobile web app (createHashRouter,
         // base "/mobile"). The route embeds the Crypto Withdrawals web component
         // + iframe.

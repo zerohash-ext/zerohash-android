@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 enum class ZerohashApp {
     FUND,
+    CRYPTO_DEPOSITS,
     CRYPTO_WITHDRAWALS,
     FUND_WITHDRAWALS
 }
@@ -232,6 +233,15 @@ internal interface CallbackHandler {
     fun handleDepositStatus(data: JSONObject?) {}
 
     /**
+     * Crypto Deposits completion, posted by the mobile web app as a
+     * `crypto-deposit` message. Its own channel rather than [handleDeposit]:
+     * that one already means Fund's completion and carries a different shape
+     * (`transactionId`/`fundId` rather than `depositId`/`network`). Default no-op
+     * so the other flows need not implement it.
+     */
+    fun handleCryptoDeposit(data: JSONObject?) {}
+
+    /**
      * Crypto Withdrawals completion, posted by the mobile web app as a
      * `crypto-withdrawal` message. Default no-op so deposit-only flows (Fund)
      * need not implement it.
@@ -240,8 +250,9 @@ internal interface CallbackHandler {
 
     /**
      * Terminal *failed* transaction, posted as `transaction-failed`. Emitted by
-     * Fund and Crypto Withdrawals only — a session runs one flow, and the payload
-     * is that flow's failure data. Fund Withdrawals has no such message.
+     * Fund, Crypto Withdrawals and Crypto Deposits — a session runs one flow, and
+     * the payload is that flow's failure data. Fund Withdrawals has no such
+     * message.
      */
     fun handleTransactionFailed(data: JSONObject?) {}
 
@@ -267,4 +278,92 @@ data class GenericEvent(
     fun getBool(key: String): Boolean? = data?.optBoolean(key)
     fun getObject(key: String): JSONObject? = data?.optJSONObject(key)
     fun getDouble(key: String): Double? = data?.optDouble(key)
+}
+
+/**
+ * Status of a deposit funded from a connected external account — the shared
+ * "auth as a feature" integrations path. Delivered to
+ * [com.zerohash.sdk.fund.FundCallbacks.onDeposit] and
+ * [com.zerohash.sdk.cryptodeposits.CryptoDepositsCallbacks.onDeposit].
+ *
+ * One type serves both because the payload is built by the shared web hook
+ * (`useHandleDepositStatus`), not by the host SDK, so it is identical whichever
+ * flow the session is running. It arrives on the `deposit-status` bridge message
+ * in both cases.
+ *
+ * A different shape from a flow's completion event: this path reports a *status*,
+ * so it carries the status value, its human-readable detail, and the
+ * account-matching validation. `status` arrives as an object
+ * (`{ value, details, occurredAt }`) and there is no flat `success` field, so both
+ * are derived from `status.value` — matching how connect-android and connect-ios
+ * parse the same payload.
+ */
+data class IntegrationsDepositEvent(
+    val depositId: String?,
+    /** Status value, e.g. `PROCESSED`, `FAILED`, `PENDING`. */
+    val status: String?,
+    /** Human-readable detail for the status. */
+    val statusDetails: String?,
+    /** When the status occurred (ISO 8601). */
+    val statusOccurredAt: String?,
+    /**
+     * True once the deposit is processed **and** account matching is not holding
+     * it back. False while pending, verifying or failed.
+     */
+    val success: Boolean,
+    val assetId: String?,
+    val networkId: String?,
+    val amount: String?,
+    /** Account-matching validation status, e.g. `PENDING`, `VALID`, `INVALID`, `ERROR`. */
+    val accountMatchingStatus: String?,
+    /**
+     * Why account matching failed. On a name mismatch this is the only explanation
+     * available anywhere in the stack, so prefer it over reporting a bare id.
+     */
+    val accountMatchingReason: String?,
+    val rawData: JSONObject?
+) {
+    companion object {
+        private fun JSONObject.optStringOrNull(key: String): String? =
+            if (has(key) && !isNull(key)) getString(key) else null
+
+        /**
+         * The one status the shared integrations flow treats as success. Unlike
+         * Auth — which also accepts CONFIRMED, gated on a profile flag that never
+         * reaches the bridge — `useHandleDepositStatus` in `integrations-flow`
+         * shows the success screen only at PROCESSED, so CONFIRMED is still in
+         * flight here.
+         */
+        private const val SUCCESS_STATUS = "processed"
+
+        /**
+         * Account-matching states the web flow routes away from success before it
+         * ever looks at the status: PENDING shows the verifying screen, INVALID
+         * and ERROR show the failed screen. Absent, VALID, or any value we don't
+         * know yet falls through to the status check, exactly as the web hook
+         * does.
+         */
+        private val NON_SUCCESS_MATCHING_STATUSES = setOf("pending", "invalid", "error")
+
+        fun fromJSON(data: JSONObject?): IntegrationsDepositEvent {
+            val status = data?.optJSONObject("status")
+            val statusValue = status?.optStringOrNull("value")
+            val validation = data?.optJSONObject("accountMatchingValidation")
+            val matchingStatus = validation?.optStringOrNull("status")
+            return IntegrationsDepositEvent(
+                depositId = data?.optStringOrNull("depositId"),
+                status = statusValue,
+                statusDetails = status?.optStringOrNull("details"),
+                statusOccurredAt = status?.optStringOrNull("occurredAt"),
+                success = statusValue?.lowercase() == SUCCESS_STATUS &&
+                    matchingStatus?.lowercase() !in NON_SUCCESS_MATCHING_STATUSES,
+                assetId = data?.optStringOrNull("assetId"),
+                networkId = data?.optStringOrNull("networkId"),
+                amount = data?.optStringOrNull("amount"),
+                accountMatchingStatus = matchingStatus,
+                accountMatchingReason = validation?.optStringOrNull("reason"),
+                rawData = data
+            )
+        }
+    }
 }

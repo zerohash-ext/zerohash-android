@@ -36,6 +36,15 @@ object MintClient {
         /** Optional per-platform identity (some flows require them); sent only when non-blank. */
         val applicationId: String = "",
         val deviceId: String = "",
+        /**
+         * Crypto-deposits `deposit_details`; sent only when non-blank. A non-blank
+         * [externalWalletAddress] is what puts the flow in external mode — the SDK
+         * reads it off the minted token, so there is no other way to reach that
+         * mode from here. Mirrors the field pair zh-web-sdk-sandbox offers for the
+         * same app (`src/api/mintJwt.ts`).
+         */
+        val depositAccountLabel: String = "",
+        val externalWalletAddress: String = "",
     )
 
     /**
@@ -52,6 +61,14 @@ object MintClient {
             put("reference_id", UUID.randomUUID().toString())
             if (p.applicationId.isNotBlank()) put("application_id", p.applicationId)
             if (p.deviceId.isNotBlank()) put("device_id", p.deviceId)
+
+            val depositDetails = JSONObject().apply {
+                if (p.depositAccountLabel.isNotBlank()) put("account_label", p.depositAccountLabel)
+                if (p.externalWalletAddress.isNotBlank()) {
+                    put("external_wallet_address", p.externalWalletAddress)
+                }
+            }
+            if (depositDetails.length() > 0) put("deposit_details", depositDetails)
         }
 
         val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {

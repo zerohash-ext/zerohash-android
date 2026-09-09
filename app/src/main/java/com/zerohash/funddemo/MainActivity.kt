@@ -12,7 +12,11 @@ import com.zerohash.sdk.ZerohashError
 import com.zerohash.sdk.ZerohashSDK
 import com.zerohash.sdk.Environment
 import com.zerohash.sdk.GenericEvent
+import com.zerohash.sdk.IntegrationsDepositEvent
 import com.zerohash.sdk.Theme
+import com.zerohash.sdk.cryptodeposits.CryptoDepositsCallbacks
+import com.zerohash.sdk.cryptodeposits.CryptoDepositsCompletedEvent
+import com.zerohash.sdk.cryptodeposits.ZerohashCryptoDepositsSession
 import com.zerohash.sdk.cryptowithdrawals.CryptoWithdrawalsCallbacks
 import com.zerohash.sdk.cryptowithdrawals.CryptoWithdrawalsCompletedEvent
 import com.zerohash.sdk.cryptowithdrawals.ZerohashCryptoWithdrawalsSession
@@ -27,6 +31,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private var fundSession: ZerohashFundSession? = null
+    private var cryptoDepositsSession: ZerohashCryptoDepositsSession? = null
     private var cryptoWithdrawalsSession: ZerohashCryptoWithdrawalsSession? = null
     private var fundWithdrawalsSession: ZerohashFundWithdrawalsSession? = null
     private val mintExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
@@ -150,10 +155,13 @@ class MainActivity : AppCompatActivity() {
         binding.rbGating.contentDescription = "env-gating"
         binding.rbDev.contentDescription = "env-dev"
         binding.rbFlowFund.contentDescription = "flow-fund"
+        binding.rbFlowCryptoDeposits.contentDescription = "flow-crypto-deposits"
         binding.rbFlowCryptoWd.contentDescription = "flow-crypto-withdrawals"
         binding.rbFlowFundWd.contentDescription = "flow-fund-withdrawals"
         binding.etPlatform.contentDescription = "input-platform"
         binding.etParticipant.contentDescription = "input-participant"
+        binding.etDepositAccountLabel.contentDescription = "input-deposit-account-label"
+        binding.etExternalWalletAddress.contentDescription = "input-external-wallet-address"
         binding.etApplicationId.contentDescription = "input-application-id"
         binding.etDeviceId.contentDescription = "input-device-id"
         binding.btnModeMint.contentDescription = "mode-mint"
@@ -203,6 +211,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun launchSelectedFlow() {
         when (binding.rgFlow.checkedRadioButtonId) {
+            R.id.rbFlowCryptoDeposits -> startCryptoDeposits()
             R.id.rbFlowCryptoWd -> startCryptoWithdrawals()
             R.id.rbFlowFundWd -> startFundWithdrawals()
             else -> startFund()
@@ -219,6 +228,9 @@ class MainActivity : AppCompatActivity() {
 
     /** Permission set a flow needs (used when no env-specific default exists). */
     private fun flowPermissions(flowId: Int): List<String> = when (flowId) {
+        // Just `crypto-deposits` — matches the sandbox's own mapping for this app
+        // (zh-web-sdk-sandbox src/apps/catalog.ts). No `fwc`.
+        R.id.rbFlowCryptoDeposits -> listOf("crypto-deposits")
         R.id.rbFlowCryptoWd -> listOf("crypto-withdrawals")
         R.id.rbFlowFundWd -> listOf("crypto-withdrawals")
         else -> listOf("fwc") // Fund
@@ -238,15 +250,20 @@ class MainActivity : AppCompatActivity() {
     private fun defaultsFor(env: Environment, flowId: Int): MintDefaults {
         val fund = flowId == R.id.rbFlowFund
         val fwd = flowId == R.id.rbFlowFundWd
+        val cd = flowId == R.id.rbFlowCryptoDeposits
         val perms = flowPermissions(flowId)
         return when (env) {
             Environment.SANDBOX -> when {
                 fund -> MintDefaults("UW6VWU", "T0A4YI", listOf("fwc"), authPolicy = true)
+                // Reuses the Fund cert pair: crypto-deposits needs an auth platform
+                // and this is the one already provisioned as such on cert.
+                cd -> MintDefaults("UW6VWU", "T0A4YI", perms, authPolicy = true)
                 fwd -> MintDefaults("MECSTB", "D4G1I3", perms, authPolicy = false)
                 else -> MintDefaults("UW6VWU", "6GLSCW", perms, authPolicy = false)
             }
             Environment.GATING -> when {
                 fund -> MintDefaults("BM3LDA", "62LHRQ", listOf("fwc", "crypto-deposits"), authPolicy = true)
+                cd -> MintDefaults("BM3LDA", "62LHRQ", perms, authPolicy = true)
                 fwd -> MintDefaults("MECSTB", "D4G1I3", perms, authPolicy = false)
                 else -> MintDefaults("D2VWYF", "0O7L9E", perms, authPolicy = false)
             }
@@ -254,7 +271,7 @@ class MainActivity : AppCompatActivity() {
                 fund -> MintDefaults("H552SV", "ZHH1NA", listOf("fwc"), authPolicy = true)
                 else -> MintDefaults("H552SV", "ZHH1NA", perms, authPolicy = false)
             }
-            Environment.PRODUCTION -> MintDefaults("", "", perms, authPolicy = fund)
+            Environment.PRODUCTION -> MintDefaults("", "", perms, authPolicy = fund || cd)
         }
     }
 
@@ -270,6 +287,15 @@ class MainActivity : AppCompatActivity() {
         val pasteDefault = selectedEnvironment() == Environment.PRODUCTION
         binding.toggleMode.check(if (pasteDefault) R.id.btnModePaste else R.id.btnModeMint)
         applyTokenMode(!pasteDefault)
+        // deposit_details only makes sense for crypto-deposits. Clear the fields
+        // when hidden so a stale address can't ride along on a Fund token.
+        val supportsDepositDetails = binding.rgFlow.checkedRadioButtonId == R.id.rbFlowCryptoDeposits
+        binding.llDepositDetails.visibility =
+            if (supportsDepositDetails) android.view.View.VISIBLE else android.view.View.GONE
+        if (!supportsDepositDetails) {
+            binding.etDepositAccountLabel.setText("")
+            binding.etExternalWalletAddress.setText("")
+        }
         binding.tvFlowPermissions.text = d.permissions.joinToString(", ")
         binding.tvMintStatus.text = "“Mint & Open” generates a JWT from these values and opens the flow."
         binding.etPlatform.setText(d.platform)
@@ -283,6 +309,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun flowLabel(): String = when (binding.rgFlow.checkedRadioButtonId) {
+        R.id.rbFlowCryptoDeposits -> "CryptoDeposits"
         R.id.rbFlowCryptoWd -> "CryptoWithdrawals"
         R.id.rbFlowFundWd -> "FundWithdrawals"
         else -> "Fund"
@@ -304,6 +331,13 @@ class MainActivity : AppCompatActivity() {
         val authPolicy = binding.cbAuthPolicy.isChecked
         val applicationId = binding.etApplicationId.text.toString().trim()
         val deviceId = binding.etDeviceId.text.toString().trim()
+        // Guarded on the flow rather than on the field being non-blank: the inputs
+        // are hidden for other flows, and a stale value must not leak onto a token.
+        val forDeposits = binding.rgFlow.checkedRadioButtonId == R.id.rbFlowCryptoDeposits
+        val depositAccountLabel =
+            if (forDeposits) binding.etDepositAccountLabel.text.toString().trim() else ""
+        val externalWalletAddress =
+            if (forDeposits) binding.etExternalWalletAddress.text.toString().trim() else ""
 
         if (platform.isEmpty() || participant.isEmpty()) {
             showError("Enter platform and participant codes")
@@ -315,7 +349,9 @@ class MainActivity : AppCompatActivity() {
         addLog(
             "body: platform=$platform participant=$participant perms=$permissions" +
                 (if (applicationId.isNotBlank()) " appId=$applicationId" else "") +
-                (if (deviceId.isNotBlank()) " deviceId=$deviceId" else "")
+                (if (deviceId.isNotBlank()) " deviceId=$deviceId" else "") +
+                (if (depositAccountLabel.isNotBlank()) " accountLabel=$depositAccountLabel" else "") +
+                (if (externalWalletAddress.isNotBlank()) " externalWallet=$externalWalletAddress" else "")
         )
         binding.btnPrimary.isEnabled = false
         binding.tvMintStatus.text = "Minting… → $url"
@@ -324,6 +360,7 @@ class MainActivity : AppCompatActivity() {
                 MintClient.mint(
                     MintClient.Params(
                         env, platform, participant, permissions, authPolicy, applicationId, deviceId,
+                        depositAccountLabel, externalWalletAddress,
                     )
                 )
             }
@@ -410,6 +447,70 @@ class MainActivity : AppCompatActivity() {
             addLog("Fund session presented")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start Fund", e)
+            addLog("Exception: ${e.message}")
+            showError("Failed to start: ${e.message}")
+        }
+    }
+
+    private fun startCryptoDeposits() {
+        val jwt = resolveJwt()
+        val environment = selectedEnvironment()
+        val theme = selectedTheme()
+
+        addLog("SDK source: ${BuildConfig.ZEROHASH_SDK_SOURCE}")
+        addLog("Environment: ${environment.toWebValue()}")
+        addLog("Theme: ${theme.toWebValue()}")
+
+        try {
+            addLog("Starting Crypto Deposits session...")
+            cryptoDepositsSession = ZerohashSDK.configureCryptoDeposits(
+                jwt = jwt,
+                environment = environment,
+                theme = theme,
+                callbacks = object : CryptoDepositsCallbacks {
+                    override fun onClose() {
+                        addLog("onClose")
+                        showToast("Session closed")
+                        cryptoDepositsSession = null
+                        runOnUiThread { goTo(STEP_ENVIRONMENT) }
+                    }
+
+                    override fun onError(error: ZerohashError) {
+                        Log.e(TAG, "Crypto Deposits error: ${error.message}")
+                        addLog("onError: $error")
+                        showError("Error: ${error.message}")
+                    }
+
+                    override fun onEvent(event: GenericEvent) {
+                        addLog("onEvent: $event")
+                    }
+
+                    override fun onLoaded() {
+                        addLog("onLoaded")
+                    }
+
+                    override fun onCompleted(event: CryptoDepositsCompletedEvent) {
+                        addLog("onCompleted: $event")
+                        showToast("Deposit completed")
+                    }
+
+                    override fun onFailed(event: CryptoDepositsCompletedEvent) {
+                        addLog("onFailed: $event")
+                        showError("Deposit failed")
+                    }
+
+                    // Only for a deposit funded from a connected account, and it can
+                    // repeat. Not an outcome — read `status`/`success`, and expect no
+                    // onCompleted on this path.
+                    override fun onDeposit(event: IntegrationsDepositEvent) {
+                        addLog("onDeposit: status=${event.status} success=${event.success} $event")
+                    }
+                }
+            )
+            cryptoDepositsSession?.present(this)
+            addLog("Crypto Deposits session presented")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start Crypto Deposits", e)
             addLog("Exception: ${e.message}")
             showError("Failed to start: ${e.message}")
         }
@@ -606,6 +707,7 @@ class MainActivity : AppCompatActivity() {
         // host cannot know which, and a missed cancel leaks the session's
         // callback handler.
         fundSession?.cancel()
+        cryptoDepositsSession?.cancel()
         cryptoWithdrawalsSession?.cancel()
         fundWithdrawalsSession?.cancel()
         mintExecutor.shutdownNow()

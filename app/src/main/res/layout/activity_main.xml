@@ -154,6 +154,14 @@
                         android:checked="true" />
 
                     <RadioButton
+                        android:id="@+id/rbFlowCryptoDeposits"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingVertical="10dp"
+                        android:textSize="16sp"
+                        android:text="Crypto Deposits" />
+
+                    <RadioButton
                         android:id="@+id/rbFlowCryptoWd"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -352,6 +360,53 @@
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etDeviceId"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="text"
+                            android:maxLines="1" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+
+                <!-- deposit_details, crypto-deposits only. A non-blank wallet
+                     address is the only way to reach the flow's external mode:
+                     the SDK reads it off the minted token. -->
+                <LinearLayout
+                    android:id="@+id/llDepositDetails"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        style="@style/Label.Section"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="deposit_details (Crypto Deposits)" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:hint="Account label (optional)">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etDepositAccountLabel"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="text"
+                            android:maxLines="1" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:hint="External wallet address (optional → external mode)">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etExternalWalletAddress"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:inputType="text"

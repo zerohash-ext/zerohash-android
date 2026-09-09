@@ -5,6 +5,7 @@ import com.zerohash.sdk.AppCallbacks
 import com.zerohash.sdk.CallbackHandler
 import com.zerohash.sdk.ZerohashError
 import com.zerohash.sdk.GenericEvent
+import com.zerohash.sdk.IntegrationsDepositEvent
 
 /**
  * Fund-specific callbacks extending base [AppCallbacks].
@@ -87,84 +88,11 @@ data class FundCompletedEvent(
 }
 
 /**
- * Status of a deposit funded from an external source, delivered to
- * [FundCallbacks.onDeposit].
- *
- * A different shape from [FundCompletedEvent]: this path reports a *status*, so it
- * carries the status value, its human-readable detail, and the account-matching
- * validation. `status` arrives as an object (`{ value, details, occurredAt }`) and
- * there is no flat `success` field, so both are derived from `status.value` —
- * matching how connect-android and connect-ios parse the same payload.
+ * Deposit status for the Fund flow. The payload is built by the shared
+ * integrations hook, so it is identical across every SDK that embeds that flow —
+ * see [IntegrationsDepositEvent], which Crypto Deposits also delivers.
  */
-data class FundDepositEvent(
-    val depositId: String?,
-    /** Status value, e.g. `PROCESSED`, `FAILED`, `PENDING`. */
-    val status: String?,
-    /** Human-readable detail for the status. */
-    val statusDetails: String?,
-    /** When the status occurred (ISO 8601). */
-    val statusOccurredAt: String?,
-    /**
-     * True once the deposit is processed **and** account matching is not holding
-     * it back. False while pending, verifying or failed.
-     */
-    val success: Boolean,
-    val assetId: String?,
-    val networkId: String?,
-    val amount: String?,
-    /** Account-matching validation status, e.g. `PENDING`, `VALID`, `INVALID`, `ERROR`. */
-    val accountMatchingStatus: String?,
-    /**
-     * Why account matching failed. On a name mismatch this is the only explanation
-     * available anywhere in the stack, so prefer it over reporting a bare id.
-     */
-    val accountMatchingReason: String?,
-    val rawData: JSONObject?
-) {
-    companion object {
-        private fun JSONObject.optStringOrNull(key: String): String? =
-            if (has(key) && !isNull(key)) getString(key) else null
-
-        /**
-         * The one status the shared integrations flow treats as success. Unlike
-         * Auth — which also accepts CONFIRMED, gated on a profile flag that never
-         * reaches the bridge — `useHandleDepositStatus` in `integrations-flow`
-         * shows the success screen only at PROCESSED, so CONFIRMED is still in
-         * flight here.
-         */
-        private const val SUCCESS_STATUS = "processed"
-
-        /**
-         * Account-matching states the web flow routes away from success before it
-         * ever looks at the status: PENDING shows the verifying screen, INVALID
-         * and ERROR show the failed screen. Absent, VALID, or any value we don't
-         * know yet falls through to the status check, exactly as the web hook
-         * does.
-         */
-        private val NON_SUCCESS_MATCHING_STATUSES = setOf("pending", "invalid", "error")
-
-        fun fromJSON(data: JSONObject?): FundDepositEvent {
-            val status = data?.optJSONObject("status")
-            val statusValue = status?.optStringOrNull("value")
-            val validation = data?.optJSONObject("accountMatchingValidation")
-            val matchingStatus = validation?.optStringOrNull("status")
-            return FundDepositEvent(
-                depositId = data?.optStringOrNull("depositId"),
-                status = statusValue,
-                statusDetails = status?.optStringOrNull("details"),
-                statusOccurredAt = status?.optStringOrNull("occurredAt"),
-                success = statusValue?.lowercase() == SUCCESS_STATUS &&
-                    matchingStatus?.lowercase() !in NON_SUCCESS_MATCHING_STATUSES,
-                assetId = data?.optStringOrNull("assetId"),
-                networkId = data?.optStringOrNull("networkId"),
-                amount = data?.optStringOrNull("amount"),
-                accountMatchingStatus = matchingStatus,
-                accountMatchingReason = validation?.optStringOrNull("reason"),
-                rawData = data
-            )
-        }
-    }
-}
+typealias FundDepositEvent = IntegrationsDepositEvent
 
 /**
  * Handler that converts raw bridge data to typed Fund events.
@@ -202,7 +130,7 @@ internal class FundCallbackHandler(
     }
 
     override fun handleDepositStatus(data: JSONObject?) {
-        val event = FundDepositEvent.fromJSON(data)
+        val event = IntegrationsDepositEvent.fromJSON(data)
         callbacks.onDeposit(event)
     }
 }
