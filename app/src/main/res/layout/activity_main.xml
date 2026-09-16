@@ -95,7 +95,7 @@
                     android:layout_height="wrap_content"
                     android:paddingVertical="12dp"
                     android:textSize="16sp"
-                    android:text="Gating (internal · VPN)" />
+                    android:text="Gating" />
 
                 <RadioButton
                     android:id="@+id/rbDev"
@@ -103,7 +103,7 @@
                     android:layout_height="wrap_content"
                     android:paddingVertical="12dp"
                     android:textSize="16sp"
-                    android:text="Dev (internal · VPN)" />
+                    android:text="Dev" />
             </RadioGroup>
 
             <TextView
