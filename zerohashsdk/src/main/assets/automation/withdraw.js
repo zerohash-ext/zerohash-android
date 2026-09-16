@@ -215,7 +215,11 @@
 
   // Telemetry breadcrumb (no-op unless telemetry is installed + enabled) — the
   // mobile twin of the extension's pushBreadcrumb → extension_handler_phase_reached.
-  function bc(phase, note) { if (window.__zhTelemetry) window.__zhTelemetry.breadcrumb(phase, note); }
+  // Returns `phase` so a caller can record where it is: `phase = bc("...")`.
+  function bc(phase, note) {
+    if (window.__zhTelemetry) window.__zhTelemetry.breadcrumb(phase, note);
+    return phase;
+  }
 
   function isVisible(el) {
     if (!el) return false;
@@ -359,6 +363,24 @@
     }
     if (all.length > 0) return "loaded";
     return null;
+  }
+
+  // Element families that identify a post-confirm screen.
+  var TESTID_PRIORITY_RE = /^(?:step-|modal|two-factor|risk|scam|passkey|identity|status|code-inputs|one-time-code|send-success|send-preview|send-now|verify-access|start-challenge|policy-restriction|onboarding|no-crypto|error-message)/;
+
+  // Diagnostic for a failed step (AUTH-4511). Never throws; runs from a catch.
+  function failureContext(phase) {
+    var parts = ["step=" + phase];
+    try {
+      parts.push("url=" + location.pathname);
+      parts.push("activeStep=" + readActiveStep());
+      parts.push("modal=" + !!queryVisible(SEL.MODAL_OVERLAY));
+      var census = D.testidCensus(TESTID_PRIORITY_RE);
+      parts.push("total=" + census.total);
+      parts.push("unique=" + census.unique);
+      parts.push("ids=" + census.list);
+    } catch (e) {}
+    return parts.join(" ");
   }
 
   // Primary entry. The session loads https://www.coinbase.com/send directly
@@ -1262,9 +1284,15 @@
 
   // "past 2FA / send accepted": success content, Complete button, or the send
   // modal overlay gone — but NOT while a gate is up or after a cancellation.
+  // Why the last past2fa() said "not done", for the diagnostic on the throw
+  // below. Not a breadcrumb: past2fa runs on every poll tick, so one here would
+  // push the rows that matter past the host's cap.
+  var past2faBlockedBy = null;
+
   function past2fa() {
-    if (wasTransferCanceled()) return false;
-    if (activeGate()) return false;
+    if (wasTransferCanceled()) { past2faBlockedBy = "canceled"; return false; }
+    var gate = activeGate();
+    if (gate) { past2faBlockedBy = "gate:" + gate; return false; }
     // Once a hold was seen, declare "done" only on UNAMBIGUOUS success — the weak
     // markers below must not flip a held send to "submitted" (a wrong "submitted"
     // loses a send still pending verification; a wrong hold self-corrects).
@@ -1273,6 +1301,7 @@
     if (sawIdVerification()) {
       var cleared = confirmedSuccess();
       if (cleared) bc("past2fa:done", "idv-cleared");
+      else past2faBlockedBy = "held-awaiting-confirmed-success";
       return cleared;
     }
     // Notes match the extension's past2fa (dom.ts) verbatim.
@@ -1281,6 +1310,7 @@
     var overlay = document.querySelector(SEL.MODAL_OVERLAY);
     if (!overlay) { bc("past2fa:done", "overlay-absent"); return true; }
     if (!queryVisible(SEL.MODAL_OVERLAY)) { bc("past2fa:done", "overlay-hidden"); return true; }
+    past2faBlockedBy = "modal-up-no-success-marker";
     return false;
   }
 
@@ -1294,17 +1324,24 @@
       SEL.PASSKEY_PROMPT, SEL.STEP_RISK_VERIFICATION, SEL.STEP_USER_CANCELLATION
     ];
     var which = await waitForAny(ANY_UI, 30000);
+    // Which anchor won the race, or that none did. This 30s span emitted nothing.
+    bc("2fa:race", which || "timeout-30s");
     if (wasTransferCanceled()) { bc("risk-gate:canceled"); return { kind: "canceled" }; }
     if (!which) {
       if (past2fa()) return { kind: "none" };
-      throw new Error("withdraw/unknown-failure: neither success nor 2FA UI appeared");
+      // start()'s catch appends the page census; why past2fa declined is the one
+      // thing it cannot reconstruct, so it rides here. Parens, not brackets.
+      throw new Error("withdraw/unknown-failure: neither success nor 2FA UI appeared (past2fa=" +
+        past2faBlockedBy + ")");
     }
     if (past2fa()) return { kind: "none" };
     if (riskIdVerificationSettled() || sawIdVerification()) {
       rememberIdVerification();
       return { kind: "id-verification", completeBefore: null };
     }
+    bc("2fa:settle-wait");
     await D.sleep(1500); // let the modal settle before inspecting buttons
+    bc("2fa:settled", readActiveStep() || "no-active-step");
     if (past2fa()) return { kind: "none" };
     if (riskIdVerificationSettled() || sawIdVerification()) {
       rememberIdVerification();
@@ -1313,6 +1350,9 @@
     if (await chooseOtpMethod()) return { kind: "otp" };
     if (queryVisible(SEL.PASSKEY_PROMPT)) return { kind: "passkey" };
     if (isOtpScreen()) return { kind: "otp" };
+    // A fall-through, not an observation: an anchor matched but nothing below it
+    // classified. This is where a drifted screen lands.
+    bc("2fa:unclassified", "past2fa=" + past2faBlockedBy);
     return { kind: "processing" };
   }
 
@@ -1655,18 +1695,20 @@
   window.__zhWithdraw = {
     // Drive Send → forms → preview → "Send now", then detect & return the 2FA state.
     start: async function (params) {
+      // Current phase, for the catch's diagnostic.
+      var phase = "open-send-modal";
       try {
         var idvReason = await idvBlockedReasonForAction("sends");
         if (idvReason) throw idvBlockedError(idvReason);
         // Capture this send's commit response; drop any prior send's first.
         installCommitInterceptor();
         forgetCommittedSend();
-        bc("open-send-modal");
+        phase = bc("open-send-modal");
         await enterSendFlow();
-        bc("enter-recipient");
+        phase = bc("enter-recipient");
         await enterRecipient(params.address);
         await runSelectionPhase(params);
-        bc("enter-amount");
+        phase = bc("enter-amount");
         await enterAmount(params.amount, params.asset);
         await selectRecipientTypeIfPresent(params.recipientType || "self-custody");
         // Self-transfer: the webapp sends transferDetails.purpose "Transfer to my
@@ -1676,10 +1718,10 @@
           params.transferDetails.purpose === "Transfer to my own account");
         await fillTravelRule(params.travelRule, { selfTransfer: isSelfTransfer });
         await fillTransferDetails(params.transferDetails);
-        bc("confirm-send");
+        phase = bc("confirm-send");
         var details = await confirmAndSend(params.address);
         moduleState().details = details; // persist for continue()
-        bc("detect-2fa");
+        phase = bc("detect-2fa");
         var outcome = await detectAndHandle2fa();
         bc("2fa-outcome", outcome.kind);
         if (outcome.kind === "none") return await finalizeSubmitted(details);
@@ -1706,6 +1748,13 @@
         if (isHoldModalPresent()) {
           return fundsNotAvailableRejection();
         }
+        // Unclassified failure. The `start-failed [ctx]:` wrapper is parsed
+        // downstream, so keep the shape.
+        var ctx = failureContext(phase);
+        bc("start-failed", ctx);
+        if (e instanceof Error) {
+          e.message = "withdraw/start-failed [" + ctx + "]: " + e.message;
+        }
         throw e;
       }
     },
@@ -1723,6 +1772,12 @@
     // Click Coinbase's "Cancel transfer"; reports whether it was found and clicked.
     cancel: async function () {
       return { cancelled: await clickCancelTransfer() };
+    },
+    // Test seam.
+    __internals: {
+      SEL: SEL,
+      readActiveStep: readActiveStep,
+      failureContext: failureContext
     }
   };
 })();

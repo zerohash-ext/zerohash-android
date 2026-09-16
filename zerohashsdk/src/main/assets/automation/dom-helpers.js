@@ -6,6 +6,8 @@
 // Loaded by prepending this file inside each automation's wrapped IIFE (see
 // Coinbase.swift), so `window.__zhDom` exists before the automation body runs.
 window.__zhDom = (function () {
+  var TESTID_CAP = 40;
+
   function sleep(ms) {
     return new Promise(function (r) { setTimeout(r, ms); });
   }
@@ -96,6 +98,53 @@ window.__zhDom = (function () {
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
+  // Collapses id-shaped segments to ":id". Digits required, so camelCase names
+  // are not mistaken for ids.
+  function normalizeTestid(id) {
+    var parts = String(id).replace(/[\[\]]/g, "").replace(/-cell-pressable$/, "").split("-");
+    for (var i = 0; i < parts.length; i++) {
+      var s = parts[i];
+      if (/^0x[0-9a-fA-F]{6,}$/.test(s) || /^[0-9a-fA-F]{16,}$/.test(s) || /^\d{6,}$/.test(s) ||
+          (s.length >= 26 && /\d/.test(s) && /^[A-Za-z0-9]+$/.test(s))) {
+        parts[i] = ":id";
+      }
+    }
+    return parts.join("-");
+  }
+
+  function collectTestids() {
+    var nodes = document.querySelectorAll("[data-testid]");
+    var out = [];
+    for (var i = 0; i < nodes.length; i++) {
+      var v = nodes[i].getAttribute("data-testid");
+      if (v) out.push(v);
+    }
+    return out;
+  }
+
+  // ids -> { total, unique, list }. `priorityRe` entries sort first, ahead of the cap.
+  function summarizeTestids(ids, priorityRe, cap) {
+    cap = cap || TESTID_CAP;
+    var seen = {};
+    var priority = [];
+    var rest = [];
+    for (var i = 0; i < ids.length; i++) {
+      var n = normalizeTestid(ids[i]);
+      if (!n || Object.prototype.hasOwnProperty.call(seen, n)) continue;
+      seen[n] = true;
+      ((priorityRe && priorityRe.test(n)) ? priority : rest).push(n);
+    }
+    var unique = priority.concat(rest);
+    var list = unique.slice(0, cap).join(",");
+    if (unique.length > cap) list += ",+" + (unique.length - cap);
+    return { total: ids.length, unique: unique.length, list: list };
+  }
+
+  // Which data-testids are mounted, for reporting an unrecognised screen.
+  function testidCensus(priorityRe, cap) {
+    return summarizeTestids(collectTestids(), priorityRe, cap);
+  }
+
   return {
     sleep: sleep,
     $: $,
@@ -104,6 +153,10 @@ window.__zhDom = (function () {
     realisticClick: realisticClick,
     findButtonByText: findButtonByText,
     clickableAncestor: clickableAncestor,
-    setReactValue: setReactValue
+    setReactValue: setReactValue,
+    normalizeTestid: normalizeTestid,
+    summarizeTestids: summarizeTestids,
+    collectTestids: collectTestids,
+    testidCensus: testidCensus
   };
 })();
