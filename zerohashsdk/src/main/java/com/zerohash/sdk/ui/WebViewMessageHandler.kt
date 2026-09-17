@@ -77,12 +77,10 @@ internal class WebViewMessageHandler(
         fun onAutomationRequest(request: JSONObject)
 
         /**
-         * The web app surfaced a terminal `error` (`{errorCode, reason}`). The
-         * error screen it now shows is static, but its animation keeps the
-         * WebView repainting — pegging the (software-rendered) GPU on the
-         * emulator and wasting battery on device. The activity halts rendering
-         * in response. Distinct from [onSessionClose], which tears the whole
-         * session down.
+         * The web app surfaced a terminal `error` (`{errorCode, reason}`).
+         * Notification only — the web app owns what the user sees next, and it
+         * routes to its error screen just *after* this fires. Distinct from
+         * [onSessionClose], which tears the whole session down.
          */
         fun onTerminalError()
     }
@@ -175,15 +173,7 @@ internal class WebViewMessageHandler(
 
         webView.post {
             callbackHandler.handleError(code, message, data)
-            // A failed crypto withdrawal deliberately emits `transaction-failed`
-            // AND `error`, the latter kept only for hosts written before `onFailed`
-            // existed. Halting rendering on that duplicate would freeze the
-            // withdrawal-failed screen the user is looking at, so once the flow has
-            // reported a terminal failure of its own, treat a following error as the
-            // compatibility echo rather than a new fatal one.
-            if (!terminalTransactionFailureSeen) {
-                delegate?.onTerminalError()
-            }
+            delegate?.onTerminalError()
         }
     }
 
@@ -246,22 +236,13 @@ internal class WebViewMessageHandler(
     /**
      * Terminal *failed* transaction, posted as `transaction-failed`. Deliberately
      * not routed through [handleError]: this is the flow's own outcome and carries
-     * the transaction's details, so it reaches `onFailed` rather than `onError`
-     * (and must not trip `onTerminalError`).
+     * the transaction's details, so it reaches `onFailed` rather than `onError`.
      */
     private fun handleTransactionFailed(data: JSONObject?) {
-        terminalTransactionFailureSeen = true
         webView.post {
             callbackHandler.handleTransactionFailed(data)
         }
     }
-
-    /**
-     * Set once the flow has reported a terminal failure of its own. Suppresses the
-     * rendering halt for the compatibility `error` that crypto-withdrawals sends
-     * straight after it — see [handleError].
-     */
-    private var terminalTransactionFailureSeen = false
 
     private fun sendJWT() {
         val jwtMessage = JSONObject().apply {

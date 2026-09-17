@@ -45,8 +45,10 @@ class WebViewActivity : AppCompatActivity(),
         const val EXTRA_ENVIRONMENT = "extra_environment"
         const val EXTRA_THEME = "extra_theme"
         const val EXTRA_SESSION_ID = "extra_session_id"
+
         /** Environment-specific web host (e.g. sdk.sandbox.connect.xyz). */
         const val EXTRA_WEB_HOST = "extra_web_host"
+
         /** Allow-listed hosts for navigation and resource filtering. */
         const val EXTRA_ALLOW_HOSTS = "extra_allow_hosts"
 
@@ -112,13 +114,6 @@ class WebViewActivity : AppCompatActivity(),
     private var allowList: ZerohashAllowList = ZerohashAllowList.DEFAULT
     private var automationBridge: AutomationBridge? = null
 
-    /**
-     * Set once the web app surfaces a terminal error (see [onTerminalError]).
-     * Keeps [onResume] from un-pausing a WebView we deliberately halted, so the
-     * static error screen never resumes its GPU-pegging repaint.
-     */
-    private var renderingHaltedForError = false
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -165,7 +160,7 @@ class WebViewActivity : AppCompatActivity(),
                 callbackHandler?.handleError(
                     ERROR_CODE_WEBVIEW_UNSUPPORTED,
                     "This device's Android System WebView is too old to run the zerohash SDK. " +
-                        "Please update it from the Play Store and try again.",
+                            "Please update it from the Play Store and try again.",
                     null
                 )
                 // finish() lands in onDestroy, which does not notify the host, and
@@ -379,6 +374,7 @@ class WebViewActivity : AppCompatActivity(),
                 val nightMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
                 nightMode == Configuration.UI_MODE_NIGHT_YES
             }
+
             else -> false
         }
     }
@@ -410,15 +406,7 @@ class WebViewActivity : AppCompatActivity(),
     }
 
     override fun onTerminalError() {
-        if (BuildConfig.DEBUG) Log.d(TAG, "Terminal error surfaced; halting WebView rendering")
-        if (::webView.isInitialized) {
-            renderingHaltedForError = true
-            // onPause() pauses animations (stops the endless repaint of the
-            // error screen) but does NOT pause JavaScript — the close button and
-            // the bridge keep working. Per-instance, so any concurrent
-            // automation WebView is unaffected (pauseTimers() would not be).
-            webView.onPause()
-        }
+        if (BuildConfig.DEBUG) Log.d(TAG, "Terminal error surfaced")
     }
 
     override fun onAutomationRequest(request: JSONObject) {
@@ -471,9 +459,7 @@ class WebViewActivity : AppCompatActivity(),
 
     override fun onResume() {
         super.onResume()
-        // Don't un-pause a WebView we halted for a terminal error — the error
-        // screen is static and would just peg the GPU again on its animation.
-        if (::webView.isInitialized && !renderingHaltedForError) {
+        if (::webView.isInitialized) {
             webView.onResume()
         }
         // Chrome Custom Tabs give no "dismissed" callback. If we resume with an
