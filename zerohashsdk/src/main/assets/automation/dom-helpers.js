@@ -59,14 +59,14 @@ window.__zhDom = (function () {
     try { el.click(); } catch (e) {}
   }
 
-  function findButtonByText(text) {
-    var btns = document.querySelectorAll("button, [role='button'], a");
-    for (var i = 0; i < btns.length; i++) {
-      if ((btns[i].textContent || "").trim().toLowerCase() === text.toLowerCase()) {
-        return btns[i];
-      }
+  // The step's one primary button, or null. Throws on 2+ rather than guessing.
+  function stepPrimaryButton(step) {
+    if (!step) return null;
+    var primaries = step.querySelectorAll('button[data-variant="primary"]');
+    if (primaries.length > 1) {
+      throw new Error("step-primary-ambiguous: expected 1 primary button in the step, found " + primaries.length);
     }
-    return null;
+    return primaries.length === 1 ? primaries[0] : null;
   }
 
   // Walks up from `el` to the nearest clickable ancestor (button/link or
@@ -151,7 +151,7 @@ window.__zhDom = (function () {
     waitUntil: waitUntil,
     waitFor: waitFor,
     realisticClick: realisticClick,
-    findButtonByText: findButtonByText,
+    stepPrimaryButton: stepPrimaryButton,
     clickableAncestor: clickableAncestor,
     setReactValue: setReactValue,
     normalizeTestid: normalizeTestid,

@@ -52,7 +52,6 @@
   var sleep = D.sleep;
   var $ = D.$;
   var realisticClick = D.realisticClick;
-  var findButtonByText = D.findButtonByText;
   var setReactValue = D.setReactValue;
 
   // Telemetry breadcrumb (no-op unless telemetry is installed + enabled) — the
@@ -196,21 +195,20 @@
     throw new Error(msg);
   }
 
+  function dismissStepViaPrimary(stepSelector) {
+    var step = $(stepSelector);
+    if (!step) return;
+    try {
+      var btn = D.stepPrimaryButton(step);
+      if (btn) realisticClick(btn);
+    } catch (e) {}
+  }
+
   function dismissInterstitials() {
-    // Fire-and-forget; warnings/NUX may or may not appear.
-    var nux = $(LIGHTNING_NUX_STEP);
-    if (nux) { var c = findButtonByText("Continue"); if (c) realisticClick(c); }
+    dismissStepViaPrimary(LIGHTNING_NUX_STEP);
     var understand = $(NETWORK_WARNING_UNDERSTAND);
     if (understand) realisticClick(understand);
-    // Memo/destination-tag warning (e.g. XRP). Click the step's primary button
-    // (the confirm has no testid). Scoped to the step so we never click a
-    // primary button on the address screen. The "don't show again" checkbox is
-    // left untouched.
-    var memo = $(MEMO_WARNING_STEP);
-    if (memo) {
-      var memoBtn = memo.querySelector('button[data-variant="primary"]');
-      if (memoBtn) realisticClick(memoBtn);
-    }
+    dismissStepViaPrimary(MEMO_WARNING_STEP);
   }
 
   // Reads the on-chain address straight from the DOM. On Coinbase mobile the

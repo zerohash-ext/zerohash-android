@@ -28,7 +28,22 @@
     inject();
   }
 
-  var steps = [dismissAppUpsell, hideRiskGateCloseButton];
+  function hideResolutionHubBanner() {
+    var STYLE_ID = "zh-hide-resolution-hub-banner";
+    var CSS = '[data-testid="system-alert-banner"]{display:none !important;}';
+
+    function inject() {
+      if (document.getElementById(STYLE_ID)) return;
+      var style = document.createElement("style");
+      style.id = STYLE_ID;
+      style.textContent = CSS;
+      (document.head || document.documentElement).appendChild(style);
+    }
+
+    inject();
+  }
+
+  var steps = [dismissAppUpsell, hideRiskGateCloseButton, hideResolutionHubBanner];
   for (var i = 0; i < steps.length; i++) {
     // One failing step must not stop the others, and none of them is worth
     // aborting the run for.

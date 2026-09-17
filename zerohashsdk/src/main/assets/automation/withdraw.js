@@ -46,40 +46,21 @@
   // reading a just-acknowledged warning out of one is what produced
   // `withdraw/selection-phase-stalled: revisited networkWarning`.
   var STEP_INACTIVE = '[data-testid^="step-"][data-testid$="-inactive"]';
-  // The container hosting BOTH the network list and the acceptance warning — the
-  // scope root for the label fallback below.
-  var STEP_L2_SELECTION = '[data-testid="step-l2SelectionStep-active"]';
-  // Label fallbacks for the acknowledge button, used only once a testid drift has
-  // hidden NETWORK_WARNING_CONTINUE. Coinbase renders a CURLY apostrophe (U+2019);
-  // the ASCII form and an apostrophe-free fragment follow as last resorts.
-  var NETWORK_WARNING_ACK_TEXTS = ["Yes, it’s supported", "Yes, it's supported"];
-  var NETWORK_WARNING_ACK_FRAGMENT = "supported";
 
   // Destination tag / memo
   var STEP_DESTINATION_TAG = '[data-testid="step-destinationTagStep-active"]';
   var DESTINATION_TAG_INPUT = STEP_DESTINATION_TAG + ' input';
   var SKIP_DESTINATION_TAG = '[data-testid="skip-destination-tag"]';
 
-  // ID/liveness verification. STEP_RISK_VERIFICATION is the container; deciding on
-  // it needs a SETTLED sub-state below, since the container can be up while still
-  // rendering (e.g. the transient scam-warning intro). Matched by data-testid
-  // (locale-independent), never button text.
   var STEP_RISK_VERIFICATION = '[data-testid="step-riskSelfServeStep-active"]';
   var RISK_START_CHALLENGE = '[data-testid="start-challenge-button"]';
   var RISK_STEP_IDV = '[data-testid="step-idVerification-active"]';
   var RISK_IDV_FAILED = '[data-testid="id-capture-reskinned-failure-view"]';
   // Transient intro frame, rendered before the buttons exist.
   var RISK_SCAM_INTRO = '[data-testid="scam-warning-intro"]';
-  var RISK_START_ID_CHECK_LABEL = "Start ID check";
-  var RISK_CANCEL_TRANSFER_LABEL = "Cancel transfer";
-  // Only used by readPendingTransfer, for the separate step-previousTransfer
-  // screen. The risk screen has no such label.
-  var RISK_COMPLETE_BEFORE_LABEL = "Complete before";
+  var RISK_CANCEL_TRANSFER = '[data-testid="risk-warning-v2-cancel-button"]';
 
-  // "Review pending transfer" — a PRIOR transfer blocking a new send
   var STEP_PREVIOUS_TRANSFER = '[data-testid="step-previousTransfer-active"]';
-  var PENDING_AMOUNT_LABEL = "Amount";
-  var PENDING_TO_LABEL = "To";
 
   var STEP_WBL_HOLD = '[data-testid="step-wblHoldStep-active"]';
 
@@ -91,6 +72,8 @@
   var MAX_BUTTON = '[data-testid="max-button"]';
   var PREVIEW_SEND = '[data-testid="preview-send-button"]';
   var ASSET_BALANCE = '[data-testid="asset-balance-cell"]';
+  var CURRENCY_SYMBOL = CURRENCY_INPUT + ' + span[class*="FlexibleCurrencyInput__StyledSymbol"]';
+  var CURRENCY_TOGGLE_ICON = '[data-icon-name="arrowsVertical"]';
 
   // Travel rule (FATF) form
   var BENEFICIARY_NAME = '[data-testid="beneficiary-full-name"]';
@@ -131,9 +114,6 @@
   var STATUS_COMPLETE_BTN = '[data-testid="status-step-complete-button"]';
   var MODAL_OVERLAY = '[data-testid="modal-overlay"]';
 
-  // Post-send transaction-details step
-  var STEP_TRANSACTION_DETAILS = '[data-testid="step-transactionDetailsStep-active"]';
-
   // Keep references so the scaffold's selector set isn't dead-code-eliminated and
   // is available to the driver functions ported in later steps.
   var SEL = {
@@ -151,9 +131,6 @@
     networkTestId: networkTestId,
     NETWORK_WARNING_CONTINUE: NETWORK_WARNING_CONTINUE,
     STEP_INACTIVE: STEP_INACTIVE,
-    STEP_L2_SELECTION: STEP_L2_SELECTION,
-    NETWORK_WARNING_ACK_TEXTS: NETWORK_WARNING_ACK_TEXTS,
-    NETWORK_WARNING_ACK_FRAGMENT: NETWORK_WARNING_ACK_FRAGMENT,
     STEP_DESTINATION_TAG: STEP_DESTINATION_TAG,
     DESTINATION_TAG_INPUT: DESTINATION_TAG_INPUT,
     SKIP_DESTINATION_TAG: SKIP_DESTINATION_TAG,
@@ -162,18 +139,16 @@
     RISK_STEP_IDV: RISK_STEP_IDV,
     RISK_IDV_FAILED: RISK_IDV_FAILED,
     RISK_SCAM_INTRO: RISK_SCAM_INTRO,
-    RISK_START_ID_CHECK_LABEL: RISK_START_ID_CHECK_LABEL,
-    RISK_CANCEL_TRANSFER_LABEL: RISK_CANCEL_TRANSFER_LABEL,
-    RISK_COMPLETE_BEFORE_LABEL: RISK_COMPLETE_BEFORE_LABEL,
+    RISK_CANCEL_TRANSFER: RISK_CANCEL_TRANSFER,
     STEP_PREVIOUS_TRANSFER: STEP_PREVIOUS_TRANSFER,
-    PENDING_AMOUNT_LABEL: PENDING_AMOUNT_LABEL,
-    PENDING_TO_LABEL: PENDING_TO_LABEL,
     STEP_WBL_HOLD: STEP_WBL_HOLD,
     STEP_USER_CANCELLATION: STEP_USER_CANCELLATION,
     CURRENCY_INPUT: CURRENCY_INPUT,
     MAX_BUTTON: MAX_BUTTON,
     PREVIEW_SEND: PREVIEW_SEND,
     ASSET_BALANCE: ASSET_BALANCE,
+    CURRENCY_SYMBOL: CURRENCY_SYMBOL,
+    CURRENCY_TOGGLE_ICON: CURRENCY_TOGGLE_ICON,
     BENEFICIARY_NAME: BENEFICIARY_NAME,
     COUNTRY_SELECT: COUNTRY_SELECT,
     countryOption: countryOption,
@@ -202,8 +177,7 @@
     SEND_SUCCESS: SEND_SUCCESS,
     SUCCESS_HEADLINE: SUCCESS_HEADLINE,
     STATUS_COMPLETE_BTN: STATUS_COMPLETE_BTN,
-    MODAL_OVERLAY: MODAL_OVERLAY,
-    STEP_TRANSACTION_DETAILS: STEP_TRANSACTION_DETAILS
+    MODAL_OVERLAY: MODAL_OVERLAY
   };
 
   // ─── Withdraw-local DOM/input helpers ───────────────────────────────
@@ -287,27 +261,6 @@
     return D.waitFor(sel, timeoutMs);
   }
 
-  // Poll for a button/clickable whose text matches `text` (exact or contains).
-  function waitForButtonByText(text, opts) {
-    opts = opts || {};
-    var root = opts.root || document;
-    var match = opts.match || "exact";
-    var requireEnabled = opts.requireEnabled || false;
-    var timeoutMs = opts.timeoutMs || 5000;
-    var want = String(text).toLowerCase();
-    return pollUntil(function () {
-      var btns = root.querySelectorAll("button, [role='button'], a");
-      for (var i = 0; i < btns.length; i++) {
-        var t = (btns[i].textContent || "").trim().toLowerCase();
-        var textMatch = match === "contains" ? t.indexOf(want) !== -1 : t === want;
-        // requireEnabled: keep waiting while the matched button is disabled
-        // (Coinbase disables Continue until async field validation settles).
-        if (textMatch && !(requireEnabled && isDisabled(btns[i]))) return btns[i];
-      }
-      return null;
-    }, timeoutMs, "withdraw/button-not-found: " + text);
-  }
-
   // Poll for a leaf element whose trimmed text exactly equals `text` (the
   // recipient dropdown renders the pasted address as an item).
   function waitForExactText(text, timeoutMs) {
@@ -342,13 +295,6 @@
     return el ? (el.innerText || el.textContent || "") : "";
   }
 
-  // Toolbox the driver functions (ported in later sub-steps) build on.
-  var H = {
-    isVisible: isVisible, queryVisible: queryVisible, waitForAny: waitForAny,
-    pollUntil: pollUntil, waitForElement: waitForElement, waitForButtonByText: waitForButtonByText,
-    humanDelay: humanDelay, humanClick: humanClick, setReactValue: setReactValue,
-    typeLikeHuman: typeLikeHuman, isDisabled: isDisabled, getInnerText: getInnerText
-  };
 
   // ─── Screen drivers ──────────────────────────────────────────────────
 
@@ -403,16 +349,10 @@
     return e;
   }
 
-  // Read the prior transfer's Amount / To / Complete-before from the visible
-  // "Review pending transfer" screen. All-null when the step isn't up.
+  // The details were read by matching English label text, which never matched off
+  // an English account. The reported shape is unchanged, with every value null.
   function readPendingTransfer() {
-    var step = queryVisible(SEL.STEP_PREVIOUS_TRANSFER);
-    if (!step) return { amount: null, recipient: null, completeBefore: null };
-    return {
-      amount: readLabeledValue(step, SEL.PENDING_AMOUNT_LABEL),
-      recipient: readLabeledValue(step, SEL.PENDING_TO_LABEL),
-      completeBefore: readLabeledValue(step, SEL.RISK_COMPLETE_BEFORE_LABEL)
-    };
+    return { amount: null, recipient: null, completeBefore: null };
   }
 
   function fundsNotAvailableError() {
@@ -527,45 +467,11 @@
     // no-next-screen diagnostic if we genuinely never advanced.
   }
 
-  // Synchronous button/clickable text scan, scoped to `root`. Mirrors
-  // waitForButtonByText's matching but does a single pass (its callers poll).
-  function findButtonByTextSync(text, opts) {
-    opts = opts || {};
-    var root = opts.root || document;
-    var match = opts.match || "exact";
-    var requireEnabled = opts.requireEnabled || false;
-    var want = String(text).toLowerCase();
-    var btns = root.querySelectorAll("button, [role='button'], a");
-    for (var i = 0; i < btns.length; i++) {
-      var t = (btns[i].textContent || "").trim().toLowerCase();
-      var ok = match === "contains" ? t.indexOf(want) !== -1 : t === want;
-      if (ok && !(requireEnabled && isDisabled(btns[i]))) return btns[i];
-    }
-    return null;
-  }
-
   // The live acknowledge control for the network-acceptance warning, or null.
-  // `allowFallback` enables the label match — a safety net for a testid drift that
-  // callers gate behind a delay so it can't fire mid-transition, and which refuses
-  // whenever the l2 container still holds network cells (a live list is never the
-  // warning).
-  function findNetworkWarningAck(opts) {
-    opts = opts || {};
-    var direct = queryVisibleLive(SEL.NETWORK_WARNING_CONTINUE);
-    if (direct) return direct;
-    if (!opts.allowFallback) return null;
-
-    var root = queryVisibleLive(SEL.STEP_L2_SELECTION);
-    if (!root) return null;
-    if (root.querySelector(SEL.NETWORK_ITEMS_ANY)) return null;
-
-    for (var i = 0; i < SEL.NETWORK_WARNING_ACK_TEXTS.length; i++) {
-      var btn = findButtonByTextSync(SEL.NETWORK_WARNING_ACK_TEXTS[i], { root: root, requireEnabled: true });
-      if (btn) return btn;
-    }
-    return findButtonByTextSync(SEL.NETWORK_WARNING_ACK_FRAGMENT, {
-      root: root, match: "contains", requireEnabled: true
-    });
+  // Resolved by testid alone: the button's visible label is localized, so matching
+  // on text decides by the account's language rather than by the screen.
+  function findNetworkWarningAck() {
+    return queryVisibleLive(SEL.NETWORK_WARNING_CONTINUE);
   }
 
   // The screen a step container uniquely determines, if any. `l2SelectionStep`
@@ -587,7 +493,7 @@
     var step = readActiveStep();
     if (step && step !== "loaded" && step !== "l2SelectionStep") return true;
     if (queryVisibleLive(SEL.CURRENCY_INPUT)) return true;
-    return findNetworkWarningAck({ allowFallback: true }) === null;
+    return findNetworkWarningAck() === null;
   }
 
   function settledPastWarning(timeoutMs) {
@@ -595,11 +501,6 @@
       .then(function () { return true; }, function () { return false; });
   }
 
-  // How long the acknowledge button must stay missing-by-testid before the label
-  // fallback is allowed to fire. In a normal transition the testid (or a real step
-  // name) resolves within a few hundred ms, so the fallback is unreachable on the
-  // happy path — its false-positive surface is only "the testid was gone this long".
-  var FALLBACK_AFTER_MS = 2000;
   // How long dismissNetworkWarning hunts for the button, and how long it waits for
   // the warning to actually clear after clicking it.
   var WARNING_FIND_MS = 5000;
@@ -611,7 +512,6 @@
     opts = opts || {};
     var timeoutMs = opts.timeoutMs || 15000;
     var notStep = opts.notStep;
-    var fallbackAfterMs = opts.fallbackAfterMs != null ? opts.fallbackAfterMs : FALLBACK_AFTER_MS;
     var start = Date.now();
     var lastSeen = null;
     while (Date.now() - start < timeoutMs) {
@@ -630,15 +530,13 @@
       if (queryVisibleLive(SEL.CURRENCY_INPUT)) return "amount";
       // Content-identified interstitial: shares l2SelectionStep's id, so neither
       // the step name nor `notStep` can tell it apart.
-      if (findNetworkWarningAck({ allowFallback: Date.now() - start >= fallbackAfterMs })) {
-        return "networkWarning";
-      }
+      if (findNetworkWarningAck()) return "networkWarning";
       if (step === "l2SelectionStep" && step !== notStep) return "network";
       await D.sleep(150);
     }
     // Report whether an acknowledge button exists in the document at all: if one
-    // does, nothing resolved because every match was stale (or the label drifted),
-    // a different diagnosis from "the screen never rendered".
+    // does, nothing resolved because every match was stale — a different diagnosis
+    // from "the screen never rendered".
     var staleAck = document.querySelector(SEL.NETWORK_WARNING_CONTINUE) !== null;
     throw new Error('withdraw/no-next-screen: last seen step "' + (lastSeen || "(none)") +
       '" (stale ack in DOM: ' + staleAck + ')');
@@ -780,7 +678,7 @@
     // querySelector with no visibility filter, so it can hand back a stale node
     // from a fading container and we'd click something inert.
     var ack = await pollUntil(function () {
-      return findNetworkWarningAck({ allowFallback: true });
+      return findNetworkWarningAck();
     }, findMs).catch(function () { return null; });
     // Already gone — the flow advanced on its own. Idempotent by design.
     if (!ack) return;
@@ -790,7 +688,7 @@
 
     // Coinbase binds on pointerdown and re-renders mid-transition — re-query and
     // click once more, keyed on THIS control clearing rather than a step name.
-    var again = findNetworkWarningAck({ allowFallback: true });
+    var again = findNetworkWarningAck();
     if (again) {
       console.warn("[withdraw] network warning still up after acknowledge; retrying");
       await humanClick(again);
@@ -966,16 +864,23 @@
   }
 
   // ── Currency-aware amount input ──
-  var CURRENCY_SYMBOL = '[data-testid="currency-input"] + span[class*="FlexibleCurrencyInput__StyledSymbol"]';
-  var CURRENCY_TOGGLE = 'button[aria-label="switch"]';
 
   function readCurrencySymbol(root) {
-    var el = root.querySelector(CURRENCY_SYMBOL);
+    var el = root.querySelector(SEL.CURRENCY_SYMBOL);
     return el ? (getInnerText(el) || null) : null;
   }
   function symbolMatchesRequest(symbol, requested, asset) {
     var isAsset = symbol.toUpperCase() === String(asset).toUpperCase();
     return requested === "asset" ? isAsset : !isAsset;
+  }
+
+  // The toggle within `root`, or null. Throws on 2+: the swap widget shares the icon.
+  function findCurrencyToggle(root) {
+    var icons = root.querySelectorAll(SEL.CURRENCY_TOGGLE_ICON);
+    if (icons.length > 1) {
+      throw new Error("withdraw/currency-toggle-ambiguous: expected 1 currency toggle in the amount step, found " + icons.length);
+    }
+    return icons.length === 1 ? icons[0].closest("button") : null;
   }
 
   // Toggle until the input's symbol matches `requested` mode (asset vs local
@@ -986,11 +891,13 @@
       var symbol = readCurrencySymbol(root);
       if (!symbol) throw new Error("Amount-entry step is missing the currency symbol");
       if (symbolMatchesRequest(symbol, requested, asset)) return symbol;
-      var toggle = root.querySelector(CURRENCY_TOGGLE);
+      var toggle = findCurrencyToggle(root);
       if (!toggle) {
-        throw new Error('Coinbase only offers "' + symbol + '" for this flow — cannot switch to "' + requested + '" mode');
+        // Deliberately does NOT claim Coinbase offers only one currency. That was
+        // the old wording, and it blamed Coinbase for our own selector missing.
+        throw new Error('withdraw/currency-toggle-not-found: cannot switch the amount input from "' + symbol + '" to "' + requested + '" mode');
       }
-      toggle.click();
+      await humanClick(toggle);
       await D.sleep(400);
     }
     throw new Error('Could not switch Coinbase amount input to "' + requested + '" mode');
@@ -1002,7 +909,11 @@
       var maxBtn = await waitForElement(SEL.MAX_BUTTON, 5000);
       await humanClick(maxBtn);
     } else {
-      var stepEl = input.closest('[data-testid^="step-"][data-testid$="-active"]') || document.body;
+      // Must be the active step: document.body would bring the swap widget's icon in range.
+      var stepEl = input.closest(SEL.STEP_ACTIVE);
+      if (!stepEl) {
+        throw new Error("withdraw/amount-step-not-found: the currency input is not inside an active step");
+      }
       await ensureCurrencyMode(stepEl, amount.currency, coin);
       await typeLikeHuman(input, amount.value);
     }
@@ -1012,6 +923,7 @@
     await rejectIfAmountInvalid();
   }
 
+  // The rejection's bucket, or NULL when we cannot tell. English-only, and partial.
   function classifyAmountError(msg) {
     var lower = msg.toLowerCase();
     if (lower.indexOf("add at least") !== -1 || lower.indexOf("insufficient") !== -1 ||
@@ -1020,18 +932,23 @@
       return "withdraw/insufficient-funds";
     }
     if (lower.indexOf("minimum") !== -1) return "withdraw/below-minimum";
-    return "withdraw/amount-validation";
+    return null;
   }
+
+  // Stays amount-validation: an unmapped withdraw code becomes platform-ui-changed.
+  var AMOUNT_REJECTED_UNKNOWN = "withdraw/amount-validation";
 
   function readAmountValidationError() {
     var errEl = queryVisible(SEL.AMOUNT_ERROR_MESSAGE);
-    var raw = errEl ? getInnerText(errEl) : "";
-    var msg = raw.replace(/\s*View balance\s*$/i, "").trim();
+    // Carried verbatim: the old English "View balance" strip matched no captured dump.
+    var msg = (errEl ? getInnerText(errEl) : "").trim();
     var balanceEl = queryVisible(SEL.ASSET_BALANCE);
     var balance = balanceEl ? getInnerText(balanceEl).replace(/\s+/g, " ") : null;
-    if (!msg) return "withdraw/amount-validation: amount rejected (no error text surfaced)";
+    if (!msg) return AMOUNT_REJECTED_UNKNOWN + ": amount rejected (no error text surfaced)";
     var code = classifyAmountError(msg);
-    return balance ? (code + ": " + msg + " (balance: " + balance + ")") : (code + ": " + msg);
+    var detail = code ? msg : "unclassified (locale-dependent phrasing): " + msg;
+    var out = (code || AMOUNT_REJECTED_UNKNOWN) + ": " + detail;
+    return balance ? (out + " (balance: " + balance + ")") : out;
   }
 
   // Coinbase validates the amount inline; a rejected value keeps the modal on
@@ -1053,19 +970,27 @@
     return payload.network;
   }
 
-  // XRP/ATOM/XLM/EOS prompt for a destination tag (memo) between network
-  // selection and amount. Fill it (then Continue) when supplied; the orchestrator
-  // calls skip otherwise. Continue stays disabled until Coinbase's async tag-format
-  // validation settles, so we wait for the enabled button.
+  // Waits for the step's primary to enable. Not pollUntil: it eats the ambiguity error.
+  async function waitForStepPrimary(step, timeoutMs, errCode) {
+    var end = Date.now() + (timeoutMs || 5000);
+    for (;;) {
+      var btn = D.stepPrimaryButton(step);
+      if (btn && !isDisabled(btn)) return btn;
+      if (Date.now() >= end) throw new Error(errCode);
+      await D.sleep(150);
+    }
+  }
+
   async function fillDestinationTag(tag) {
     var input = await waitForElement(SEL.DESTINATION_TAG_INPUT, 5000);
     var step = await waitForElement(SEL.STEP_DESTINATION_TAG, 1000);
     input.focus();
     setReactValue(input, tag);
     await D.sleep(200); // let Coinbase's async tag-format validation settle
-    var continueBtn = await waitForButtonByText("Continue", {
-      root: step, requireEnabled: true, timeoutMs: 5000
-    });
+    // The confirm has no testid and no icon; data-variant is the only locale-invariant handle.
+    var continueBtn = await waitForStepPrimary(
+      step, 5000, "withdraw/destination-tag-continue-not-found"
+    );
     await humanClick(continueBtn);
   }
 
@@ -1083,7 +1008,7 @@
 
   // Re-detects tolerated per screen. The acceptance warning gets a few: Coinbase
   // can chain interstitials, and our own acknowledge can be re-read while the
-  // container fades out. Re-clicking "Yes, it's supported" is idempotent and moves
+  // container fades out. Re-clicking the acknowledge is idempotent and moves
   // no money — whereas re-running `network` or `coin` could pick a DIFFERENT
   // network or asset, so those stay single-shot and keep genuine stall detection.
   var SCREEN_ATTEMPT_CAP = { coin: 1, network: 1, networkWarning: 3, destinationTag: 1 };
@@ -1213,19 +1138,6 @@
     var sendBtn = await waitForElement(SEL.SEND_NOW, 5000);
     await humanClick(sendBtn);
     return details;
-  }
-
-  // Read the value rendered next to a label span (label span → sibling value span).
-  function readLabeledValue(root, label) {
-    var spans = root.querySelectorAll("span");
-    for (var i = 0; i < spans.length; i++) {
-      if ((spans[i].textContent || "").trim() === label) {
-        var sib = spans[i].nextElementSibling;
-        var t = (sib && sib.textContent || "").trim();
-        return t || null;
-      }
-    }
-    return null;
   }
 
   // Settled sub-state only: the bare container mounts before its content.
@@ -1630,13 +1542,12 @@
     return "processing";
   }
 
-  // Click "Cancel transfer" on the risk step. true if found+clicked, false if the
-  // step isn't up (e.g. already verified/cancelled in the UI).
+  // Clicks the risk step's cancel. false when absent is normal: the container mounts
+  // before its content, and the IDV sub-states carry no cancel button.
   async function clickCancelTransfer() {
     var step = queryVisible(SEL.STEP_RISK_VERIFICATION);
     if (!step) return false;
-    var btn = await waitForButtonByText(SEL.RISK_CANCEL_TRANSFER_LABEL, { root: step, timeoutMs: 500 })
-      .catch(function () { return null; });
+    var btn = step.querySelector(SEL.RISK_CANCEL_TRANSFER);
     if (!btn) return false;
     await humanClick(btn);
     return true;

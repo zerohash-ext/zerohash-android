@@ -34,6 +34,10 @@ class WithdrawNetworkWarningAssetTest {
     private val js: String =
         File("src/main/assets/automation/withdraw.js").readText()
 
+    /** Comments stripped, so a guard never matches its own rationale. */
+    private fun code(src: String): String =
+        src.lineSequence().map { it.substringBefore("//") }.joinToString("\n")
+
     // ── The core fix: live-scoped visibility that excludes faded containers ──
 
     @Test
@@ -80,7 +84,7 @@ class WithdrawNetworkWarningAssetTest {
         // warning fading inside its container can't out-rank the screen we reached.
         val mappedStep = js.indexOf("var mapped = screenForStep(step);")
         val amountAnchor = js.indexOf("""if (queryVisibleLive(SEL.CURRENCY_INPUT)) return "amount";""")
-        val warningCheck = js.indexOf("if (findNetworkWarningAck({ allowFallback: Date.now() - start >= fallbackAfterMs })) {")
+        val warningCheck = js.indexOf("""if (findNetworkWarningAck()) return "networkWarning";""")
         assertTrue("screenForStep mapping missing from detectNextScreen", mappedStep >= 0)
         assertTrue("amount content anchor missing from detectNextScreen", amountAnchor >= 0)
         assertTrue("network-warning detection missing from detectNextScreen", warningCheck >= 0)
@@ -94,28 +98,31 @@ class WithdrawNetworkWarningAssetTest {
         )
     }
 
-    // ── findNetworkWarningAck: live-only, refuses a live network list ──
+    // ── findNetworkWarningAck: live-only, testid-only ──
 
     @Test
-    fun ackFinderResolvesLiveAndRefusesWhenNetworkListStillPresent() {
+    fun ackFinderResolvesTheLiveControlByItsTestid() {
         assertTrue("withdraw.js must define findNetworkWarningAck", js.contains("function findNetworkWarningAck("))
         assertTrue(
             "findNetworkWarningAck must resolve the live ack control (queryVisibleLive)",
-            js.contains("var direct = queryVisibleLive(SEL.NETWORK_WARNING_CONTINUE);"),
-        )
-        assertTrue(
-            "findNetworkWarningAck must refuse while the l2 container still holds network cells",
-            js.contains("if (root.querySelector(SEL.NETWORK_ITEMS_ANY)) return null;"),
+            js.contains("return queryVisibleLive(SEL.NETWORK_WARNING_CONTINUE);"),
         )
     }
 
     @Test
-    fun ackLabelFallbackUsesTheCurlyApostrophe() {
-        // Coinbase ships the acknowledge label with a CURLY apostrophe (U+2019); an
-        // ASCII-only fallback would silently miss it on a testid drift.
-        assertTrue(
-            "the label fallback must include the curly-apostrophe form Coinbase renders",
-            js.contains("\"Yes, it’s supported\""),
+    fun ackFinderCarriesNoLabelMatch() {
+        // The rendered label depends on the account's language, so the testid is the
+        // only handle that identifies this button.
+        val src = code(js)
+        assertFalse(
+            "the acknowledge must not be matched on any button label",
+            src.contains("NETWORK_WARNING_ACK_TEXTS") ||
+                src.contains("NETWORK_WARNING_ACK_FRAGMENT") ||
+                src.contains("findButtonByTextSync"),
+        )
+        assertFalse(
+            "and no allowFallback plumbing may survive",
+            src.contains("allowFallback"),
         )
     }
 
@@ -126,7 +133,7 @@ class WithdrawNetworkWarningAssetTest {
         val dismiss = sliceFunction("async function dismissNetworkWarning(")
         assertTrue(
             "dismissNetworkWarning must resolve the ack via the live finder",
-            dismiss.contains("findNetworkWarningAck({ allowFallback: true })"),
+            dismiss.contains("findNetworkWarningAck()"),
         )
         assertFalse(
             "dismissNetworkWarning must NOT resolve via the raw, unfiltered waitForElement",
