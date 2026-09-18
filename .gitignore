@@ -75,10 +75,6 @@ lint/tmp/
 .DS_Store
 
 # --- DO NOT COMMIT: local test-only files (see DO_NOT_COMMIT.md) ---
-# Netskope corporate CA bundle + debug network-security overlay. These are
-# developer-machine specific (corporate TLS interception on the emulator) and
-# must never be committed.
-app/src/debug/
 # Local developer notes / presentation scripts (not part of the SDK).
 ZEROHASH_ANDROID_OVERVIEW.md
 COMO_FUNCIONA_O_APP.md
