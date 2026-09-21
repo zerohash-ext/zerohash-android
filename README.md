@@ -396,6 +396,25 @@ adb shell "chown system:system /data/misc/user/0/cacerts-added/$HASH.0 && \
 The debug build already trusts user-installed CAs via a local-only network-security
 overlay in `app/src/debug` (git-ignored — see `DO_NOT_COMMIT.md`).
 
+### Release signing (Play Console uploads)
+
+`./gradlew :app:bundleRelease` needs a signed AAB to be accepted by Play
+Console. Signing is wired up via a `keystore.properties` file at the repo
+root (git-ignored, never commit it):
+
+```properties
+storeFile=/absolute/path/to/zerohash-mockapp-upload.jks
+storePassword=...
+keyAlias=zerohash-mockapp
+keyPassword=...
+```
+
+Ask a teammate who already has the `zerohash-mockapp-upload.jks` upload
+keystore to share it (and its passwords) with you through the team's
+secrets manager — do not send it over Slack/email. Without this file,
+`bundleRelease` still builds but produces an **unsigned** AAB that Play
+Console will reject.
+
 ## License
 
 Licensed under the zerohash Android Wrapper License — a proprietary license.

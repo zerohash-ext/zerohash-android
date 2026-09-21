@@ -1,4 +1,5 @@
 import groovy.json.JsonSlurper
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -63,12 +64,22 @@ val zerohashSdkLabel =
     if (useJitpack) "Zerohash Fund Demo · $zerohashSdkArtifact $zerohashSdkVersion"
     else "Zerohash Fund Demo · local"
 
+// Release signing (Play Console internal testing upload key). Not committed —
+// see keystore.properties (gitignored). Falls back to unsigned if absent so
+// local debug builds keep working without it.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+
 android {
     namespace = "com.zerohash.funddemo"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.zerohash.funddemo"
+        applicationId = "com.zerohash.mockapp"
         minSdk = 21
         // Matches what partner apps ship. Android 15+ enforces edge-to-edge
         // from 35 up, so pinning lower here hides system-bar inset bugs that
@@ -84,6 +95,17 @@ android {
         resValue("string", "zerohash_sdk_webview_label", zerohashSdkLabel)
     }
 
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -91,6 +113,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
