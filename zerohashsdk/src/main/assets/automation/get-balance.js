@@ -64,6 +64,44 @@ function decodeBody(text, contentType) {
   try { return JSON.parse(text); } catch (e) { return null; }
 }
 
+// Coinbase reports `staking.summary.totalStakedPercent` as a decimal in 0–1, so
+// scale it to a percent. A value that is present but not a number (blank, junk)
+// means "unknown", not zero, so it has to come out as null.
+function stakedPercent(node) {
+  const raw = ((node.asset.staking || {}).summary || {}).totalStakedPercent;
+  const decimal = raw != null ? parseFloat(raw) : NaN;
+  return Number.isFinite(decimal) ? String(decimal * 100) : null;
+}
+
+// Share of a cash asset that is locked — currently funds lent through DeFi Lend.
+// Lent funds cannot be withdrawn or spent, and the lent account's balance is NOT
+// deducted from its sibling, so the only signal is the per-account
+// `allowWithdrawals` split. Uses native-currency values because cash accounts
+// carry no crypto balance; the ratio is dimensionless, so it holds for `amount`
+// and `notional` alike.
+//
+// Reported through `totalStakedPercent` because that field already means "the
+// slice you cannot withdraw". Null when nothing is locked or the breakdown is
+// missing.
+function lockedPercent(node) {
+  const accounts = node.asset.accounts;
+  if (!Array.isArray(accounts)) return null;
+
+  let total = 0;
+  let locked = 0;
+  for (const account of accounts) {
+    const raw = ((account || {}).totalBalanceInNativeCurrency || {}).value;
+    const value = raw != null ? parseFloat(raw) : NaN;
+    // Skipped, not counted as zero — a zero in the total overstates the locked share.
+    if (!Number.isFinite(value)) continue;
+    total += value;
+    if (account.allowWithdrawals === false) locked += value;
+  }
+
+  if (total <= 0 || locked <= 0) return null;
+  return String((locked / total) * 100);
+}
+
 // Parses a folded GraphQL response connection into balances.
 // Returns { status: "complete", balances, currency } or { status: "incomplete" }.
 function parseConnection(folded, field, op, displayCurrency) {
@@ -93,11 +131,7 @@ function parseConnection(folded, field, op, displayCurrency) {
     const amount = (node.totalBalanceCrypto || {}).amount || "0";
     const notional = (node.totalBalanceFiat || {}).amount || "0";
     if (parseFloat(amount) === 0 && parseFloat(notional) === 0) continue;
-    let staked = null;
-    if (field === "cryptoAssets") {
-      const s = ((node.asset.staking || {}).summary || {}).totalStakedPercent;
-      if (s != null) staked = String(parseFloat(s) * 100);
-    }
+    const staked = field === "cryptoAssets" ? stakedPercent(node) : lockedPercent(node);
     balances.push({
       key: asset.displaySymbol || asset.platformName || "",
       label: asset.name || "",
