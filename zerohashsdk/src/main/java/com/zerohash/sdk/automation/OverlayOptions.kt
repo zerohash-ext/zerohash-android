@@ -1,34 +1,102 @@
 package com.zerohash.sdk.automation
 
+import androidx.annotation.ColorInt
 import androidx.annotation.DrawableRes
 import org.json.JSONObject
 import com.zerohash.sdk.R
 
 /**
- * The brand whose dot palette + "Powered by" mark the loading overlay renders.
- * Android port of iOS `Brand`. The brand is the single source of truth for the
- * palette and footer logo (callers don't supply colors directly), mirroring the
- * web `resolveOverlayOptions`. `zerohash` is the default for this SDK.
+ * Vertical alignment of the footer prefix ("Powered by" / "Secured by")
+ * against the brand mark. Single-line marks (`connect`, `zerohash`) sit
+ * centered next to the label; the two-tier "Connect by zerohash" wordmark
+ * used by `securedConnect` is taller than the label and pairs with a
+ * top-aligned row instead (`align-items: flex-start` in the web overlay).
  */
-internal enum class Brand(
-    val left: Int,
-    val middle: Int,
-    val right: Int,
+internal enum class FooterAlignment { CENTER, TOP }
+
+/**
+ * The resolved theme for a brand: dot palette, footer mark drawable,
+ * prefix label, mark height, and row alignment. Mirrors `BRANDING_THEMES`
+ * on the web extension plus the CSS overrides in `overlay.ts` that vary
+ * height and alignment per brand (single-line marks vs the two-tier
+ * wordmark). Android counterpart of iOS `BrandTheme`.
+ */
+internal data class BrandTheme(
+    @ColorInt val left: Int,
+    @ColorInt val middle: Int,
+    @ColorInt val right: Int,
     @DrawableRes val markRes: Int,
-) {
-    // Connect Yellow palette.
-    CONNECT(0xFFFCFC99.toInt(), 0xFFF2F07D.toInt(), 0xFFF0D53E.toInt(), R.drawable.zh_connect_mark),
-    // ZH Green palette.
-    ZEROHASH(0xFFCCFFD0.toInt(), 0xFFABF9B1.toInt(), 0xFF8FEB96.toInt(), R.drawable.zh_zerohash_mark);
+    val footerLabel: String,
+    val markHeightDp: Int,
+    val footerAlignment: FooterAlignment,
+)
+
+/**
+ * The brand whose palette + footer lockup the loading overlay renders.
+ * Android port of iOS `Brand`. The brand is the single source of truth for
+ * the palette and footer lockup (mark + prefix): callers don't supply
+ * colors directly, mirroring the web `resolveOverlayOptions`. `zerohash`
+ * is the default for this SDK.
+ *
+ * `SECURED_CONNECT` mirrors zerohash-sdk's `SecuredByConnectFooter` — the
+ * same Connect palette as `CONNECT`, but swaps the Connect mark for the
+ * "Connect by zerohash" wordmark under a "Secured by" prefix. Its wire
+ * value is the hyphenated `secured-connect` (matching the web contract),
+ * hence the explicit `wireValue` — the Kotlin case name uses the idiomatic
+ * `SECURED_CONNECT` form.
+ */
+internal enum class Brand(val wireValue: String) {
+    CONNECT("connect"),
+    ZEROHASH("zerohash"),
+    SECURED_CONNECT("secured-connect");
+
+    /** The resolved theme (palette + footer lockup) for this brand. */
+    val theme: BrandTheme
+        get() = when (this) {
+            CONNECT -> BrandTheme(
+                left = 0xFFFCFC99.toInt(),
+                middle = 0xFFF2F07D.toInt(),
+                right = 0xFFF0D53E.toInt(),
+                markRes = R.drawable.zh_connect_mark,
+                footerLabel = "Powered by",
+                markHeightDp = 14,
+                footerAlignment = FooterAlignment.CENTER,
+            )
+            ZEROHASH -> BrandTheme(
+                left = 0xFFCCFFD0.toInt(),
+                middle = 0xFFABF9B1.toInt(),
+                right = 0xFF8FEB96.toInt(),
+                markRes = R.drawable.zh_zerohash_mark,
+                footerLabel = "Powered by",
+                markHeightDp = 14,
+                footerAlignment = FooterAlignment.CENTER,
+            )
+            // Same Connect palette as CONNECT; the difference is the two-tier
+            // wordmark, the "Secured by" prefix, the taller (28dp) mark, and the
+            // top-aligned row that pairs with a two-tier lockup.
+            SECURED_CONNECT -> BrandTheme(
+                left = 0xFFFCFC99.toInt(),
+                middle = 0xFFF2F07D.toInt(),
+                right = 0xFFF0D53E.toInt(),
+                markRes = R.drawable.zh_connect_by_zerohash_mark,
+                footerLabel = "Secured by",
+                markHeightDp = 28,
+                footerAlignment = FooterAlignment.TOP,
+            )
+        }
 
     companion object {
         val DEFAULT = ZEROHASH
 
-        /** Unknown/empty/absent → default (mirrors iOS `Brand.normalize`). */
-        fun normalize(raw: String?): Brand = when (raw?.lowercase()) {
-            "connect" -> CONNECT
-            "zerohash" -> ZEROHASH
-            else -> DEFAULT
+        /**
+         * Unknown/empty/absent → default (mirrors iOS `Brand.normalize`).
+         * Wire values are matched case-insensitively against each brand's
+         * declared [wireValue] — hosts send the hyphenated `secured-connect`,
+         * not the camelCased Kotlin/Swift case name.
+         */
+        fun normalize(raw: String?): Brand {
+            val lowered = raw?.lowercase() ?: return DEFAULT
+            return values().firstOrNull { it.wireValue == lowered } ?: DEFAULT
         }
     }
 }
@@ -39,7 +107,7 @@ internal enum class Brand(
  * input against the defaults. Android port of iOS `OverlayOptions`.
  *
  * `titles`/`subtitles` cycle in parallel every [cycleMs]; [brand] selects the
- * dot palette and footer mark.
+ * dot palette and footer lockup.
  */
 internal data class OverlayOptions(
     val titles: List<String>,

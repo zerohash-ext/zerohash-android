@@ -58,10 +58,22 @@ class OverlayOptionsTest {
     fun brandNormalize() {
         assertEquals(Brand.CONNECT, Brand.normalize("connect"))
         assertEquals(Brand.ZEROHASH, Brand.normalize("zerohash"))
+        assertEquals(Brand.SECURED_CONNECT, Brand.normalize("secured-connect"))
         assertEquals(Brand.CONNECT, Brand.normalize("CONNECT")) // case-insensitive
+        assertEquals(Brand.SECURED_CONNECT, Brand.normalize("Secured-Connect"))
         // DEFAULT is ZEROHASH for this SDK → unknown/null/empty normalize to it.
         assertEquals(Brand.ZEROHASH, Brand.normalize("unknown"))
         assertEquals(Brand.ZEROHASH, Brand.normalize(null))
         assertEquals(Brand.ZEROHASH, Brand.normalize(""))
+        // The Kotlin case name is not a valid wire value — hosts send the
+        // hyphenated form, so `securedConnect` / `SECURED_CONNECT` fall through.
+        assertEquals(Brand.ZEROHASH, Brand.normalize("securedConnect"))
+        assertEquals(Brand.ZEROHASH, Brand.normalize("SECURED_CONNECT"))
+    }
+
+    @Test
+    fun securedConnectBrandingResolvesEndToEnd() {
+        val wire = JSONObject().put("branding", "secured-connect")
+        assertEquals(Brand.SECURED_CONNECT, OverlayOptions.resolve(wire).brand)
     }
 }

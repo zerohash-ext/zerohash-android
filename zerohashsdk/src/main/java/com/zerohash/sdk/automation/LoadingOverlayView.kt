@@ -22,8 +22,9 @@ import android.widget.TextView
  *
  * Android port of iOS `LoadingOverlayView` (itself the native counterpart of the
  * browser extension's injected overlay): a white full-bleed background, a centered
- * three-dot loader in the brand palette, a cycling title + subtitle, and a
- * "Powered by <brand>" footer. Titles/subtitles cycle in parallel every
+ * three-dot loader in the brand palette, a cycling title + subtitle, and a footer
+ * lockup whose prefix ("Powered by" / "Secured by") + mark are chosen by
+ * `options.brand.theme`. Titles/subtitles cycle in parallel every
  * [OverlayOptions.cycleMs] when more than one message is supplied; only the line
  * whose text actually changed fades.
  */
@@ -73,7 +74,8 @@ internal class LoadingOverlayView(
             clipChildren = false
             clipToPadding = false
         }
-        listOf(options.brand.left, options.brand.middle, options.brand.right).forEach { c ->
+        val theme = options.brand.theme
+        listOf(theme.left, theme.middle, theme.right).forEach { c ->
             val dot = View(context).apply {
                 val size = dp(context, 15)
                 val margin = dp(context, 3)
@@ -130,6 +132,7 @@ internal class LoadingOverlayView(
     }
 
     private fun buildFooter(context: Context): View {
+        val theme = options.brand.theme
         val footer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -141,9 +144,16 @@ internal class LoadingOverlayView(
         }
         footer.addView(border)
 
+        // `<prefix>` + mark row. The two-tier "Connect by zerohash" wordmark
+        // used by SECURED_CONNECT is taller than the label, so its row is
+        // top-aligned (matches the web overlay's `align-items: flex-start`);
+        // every other brand stays centered.
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+            gravity = when (theme.footerAlignment) {
+                FooterAlignment.CENTER -> Gravity.CENTER
+                FooterAlignment.TOP -> Gravity.CENTER_HORIZONTAL or Gravity.TOP
+            }
             val v = dp(context, 22)
             setPadding(0, v, 0, v)
             layoutParams = LinearLayout.LayoutParams(
@@ -152,15 +162,15 @@ internal class LoadingOverlayView(
             )
         }
         row.addView(TextView(context).apply {
-            text = "Powered by"
+            text = theme.footerLabel
             setTextColor(Color.parseColor("#111827"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
         })
         row.addView(ImageView(context).apply {
-            setImageResource(options.brand.markRes)
+            setImageResource(theme.markRes)
             adjustViewBounds = true
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, dp(context, 14),
+                LinearLayout.LayoutParams.WRAP_CONTENT, dp(context, theme.markHeightDp),
             ).apply { marginStart = dp(context, 6) }
         })
         footer.addView(row)
