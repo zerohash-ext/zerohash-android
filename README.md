@@ -30,7 +30,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.zerohash:zerohash-android:1.4.0")
+    implementation("com.zerohash:zerohash-android:1.4.1")
 }
 ```
 
