@@ -91,19 +91,33 @@ internal class AutomationBridge(
             // Telemetry lives here. Gate per-request on options.telemetry (or the
             // TelemetryConfig force-on); vehicles write drafts to this collector.
             val telemetryOn = TelemetryConfig.enabled ||
-                (request.optJSONObject("options")?.optBoolean("telemetry", false) ?: false)
+                    (request.optJSONObject("options")?.optBoolean("telemetry", false) ?: false)
             val collector = if (telemetryOn) TelemetryCollector() else null
             collector?.let { TelemetryRouter.collector = it }
             val startedAt = System.currentTimeMillis()
             try {
                 val result = dispatch(platform, operation, request)
                 val telemetry = buildTelemetry(collector, "success", id, platform, operation, request, startedAt)
-                sendResponse(id, success = true, data = result.data, error = null, sessionId = result.sessionId, telemetry = telemetry)
+                sendResponse(
+                    id,
+                    success = true,
+                    data = result.data,
+                    error = null,
+                    sessionId = result.sessionId,
+                    telemetry = telemetry
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "operation failed id=$id op=$operation", e)
                 val msg = e.message ?: "operation failed"
                 val telemetry = buildTelemetry(collector, "error", id, platform, operation, request, startedAt)
-                sendResponse(id, success = false, data = null, error = msg, retryable = isRetryable(msg) && isSafeToRetry(operation), telemetry = telemetry)
+                sendResponse(
+                    id,
+                    success = false,
+                    data = null,
+                    error = msg,
+                    retryable = isRetryable(msg) && isSafeToRetry(operation),
+                    telemetry = telemetry
+                )
             } finally {
                 if (collector != null && TelemetryRouter.collector === collector) {
                     TelemetryRouter.collector = null
@@ -213,7 +227,11 @@ internal class AutomationBridge(
 
             "withdraw.continue" -> {
                 val p = platform.requireFlow<WithdrawFlow>(operation)
-                withdrawContinue(p, request.optString("sessionId").ifEmpty { null }, (request.optJSONObject("payload") ?: JSONObject()).toString())
+                withdrawContinue(
+                    p,
+                    request.optString("sessionId").ifEmpty { null },
+                    (request.optJSONObject("payload") ?: JSONObject()).toString()
+                )
             }
 
             "withdraw.cancel" -> {
@@ -322,7 +340,7 @@ internal class AutomationBridge(
     private fun handOff(ws: WithdrawSession, state: JSONObject) {
         ws.session.pauseTimeout()
         val surfacesPlatform = state.optString("state") == "awaiting-user-action" &&
-            state.optString("kind") == "id-verification"
+                state.optString("kind") == "id-verification"
         if (surfacesPlatform) {
             ws.session.revealOverlay(true)
             ws.steppedAside = false
@@ -395,6 +413,7 @@ internal class AutomationBridge(
         private const val TAG = "ZHAutomation"
         private const val ROLE_NATIVE = "zeroauth-native"
         private const val RESPONSE_TYPE = "scraping-webview-response"
+
         // Platform-prefixed SDK version, mirroring iOS "ios-<version>".
         private val VERSION = "android-${BuildConfig.SDK_VERSION}"
     }
@@ -428,11 +447,11 @@ private val TRANSIENT_PREFIXES = listOf("timeout", "load failed:")
 
 internal fun isRetryable(msg: String): Boolean =
     msg.startsWith("BALANCES_INDETERMINATE") ||
-        msg == "CHALLENGE_UNSOLVED" ||
-        TRANSIENT_PREFIXES.any { msg.startsWith(it) }
+            msg == "CHALLENGE_UNSOLVED" ||
+            TRANSIENT_PREFIXES.any { msg.startsWith(it) }
 
 internal fun isSafeToRetry(operation: String): Boolean = when (operation) {
-    "auth.login", "auth.status", "getBalance", "core.ping" -> true
+    "auth.login", "auth.status", "getBalance", "getDepositAddress", "core.ping" -> true
     else -> false
 }
 

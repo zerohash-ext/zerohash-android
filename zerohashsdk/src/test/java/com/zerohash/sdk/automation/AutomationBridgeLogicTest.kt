@@ -130,11 +130,11 @@ class AutomationBridgeLogicTest {
         assertTrue(isSafeToRetry("auth.login"))
         assertTrue(isSafeToRetry("getBalance"))
         assertTrue(isSafeToRetry("core.ping"))
+        assertTrue(isSafeToRetry("getDepositAddress"))
 
         assertFalse(isSafeToRetry("withdraw.start"))
         assertFalse(isSafeToRetry("withdraw.continue"))
         assertFalse(isSafeToRetry("withdraw.cancel"))
-        assertFalse(isSafeToRetry("getDepositAddress"))
         assertFalse(isSafeToRetry("something.unknown"))
         assertFalse(isSafeToRetry(""))
     }
@@ -145,6 +145,15 @@ class AutomationBridgeLogicTest {
         assertTrue(isRetryable(msg))
         assertFalse(isRetryable(msg) && isSafeToRetry("withdraw.continue"))
         assertTrue(isRetryable(msg) && isSafeToRetry("getBalance"))
+    }
+
+    @Test
+    fun idvBlockedDepositAddress_isNotAdvertisedAsRetryable() {
+        // getDepositAddress is re-issuable now, so a terminal IDV block rests
+        // entirely on the error being non-transient.
+        for (code in listOf("IDV_PENDING", "IDV_FAILED")) {
+            assertFalse(isRetryable(code) && isSafeToRetry("getDepositAddress"))
+        }
     }
 
     // ── isCoalescable: only idempotent reads ────────────────────────────────
