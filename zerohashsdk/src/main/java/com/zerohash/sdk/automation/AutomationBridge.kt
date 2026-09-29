@@ -182,9 +182,15 @@ internal class AutomationBridge(
     }
 
     private suspend fun runOperation(platformId: String, operation: String, request: JSONObject): OpResult {
-        // core.ping is a transport health check — no platform needed.
+        // core.ping is a transport health check — no platform needed. Android can
+        // always run automation integrations, so they're never hidden.
         if (operation == "core.ping") {
-            return OpResult(JSONObject().put("ok", true).put("version", VERSION))
+            return OpResult(
+                JSONObject()
+                    .put("ok", true)
+                    .put("version", VERSION)
+                    .put("hideAutomationIntegrations", false),
+            )
         }
 
         val platform = PlatformRegistry[platformId]
