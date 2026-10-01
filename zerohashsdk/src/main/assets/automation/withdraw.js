@@ -225,13 +225,33 @@
     return null;
   }
 
+  // ── primitives (AUTH-4657) ──
+  // Every page action and wait goes through here, and only here calls
+  // checkGuard(): once a Coinbase screen halts the send, the abandoned chain
+  // throws at its next click, keystroke or wait. Outside this block never call
+  // D.sleep, D.realisticClick, D.waitFor, D.setReactValue, .click() or
+  // dispatchEvent directly (screen-primitives-source.test.mjs enforces it).
+  var activeGuard = null; // the current send's guard; null without coinbase-screens.js
+
+  function checkGuard() {
+    if (activeGuard) activeGuard.check();
+  }
+
+  function sleep(ms) {
+    checkGuard();
+    return D.sleep(ms).then(function (v) { checkGuard(); return v; });
+  }
+
+  function humanDelay(ms) { return sleep(ms || 0); }
+
   // Poll until any selector matches a visible element; resolve the matched
   // SELECTOR STRING (so callers can branch on `which === SEL.X`), null on timeout.
   function waitForAny(selectors, timeoutMs) {
     timeoutMs = timeoutMs || 15000;
     var end = Date.now() + timeoutMs;
-    return new Promise(function (resolve) {
+    return new Promise(function (resolve, reject) {
       (function poll() {
+        try { checkGuard(); } catch (e) { return reject(e); }
         for (var i = 0; i < selectors.length; i++) {
           if (queryVisible(selectors[i])) return resolve(selectors[i]);
         }
@@ -247,6 +267,7 @@
     var end = Date.now() + timeoutMs;
     return new Promise(function (resolve, reject) {
       (function poll() {
+        try { checkGuard(); } catch (e) { return reject(e); }
         var v;
         try { v = fn(); } catch (e) { v = null; }
         if (v) return resolve(v);
@@ -258,8 +279,41 @@
 
   // Resolve the element for `sel` or reject on timeout (delegates to __zhDom).
   function waitForElement(sel, timeoutMs) {
-    return D.waitFor(sel, timeoutMs);
+    checkGuard();
+    return D.waitFor(sel, timeoutMs).then(function (el) { checkGuard(); return el; });
   }
+
+  function humanClick(el) {
+    try { checkGuard(); } catch (e) { return Promise.reject(e); }
+    D.realisticClick(el);
+    return sleep(50);
+  }
+
+  function plainClick(el) {
+    checkGuard();
+    el.click();
+  }
+
+  function setReactValue(input, value) {
+    checkGuard();
+    D.setReactValue(input, value);
+  }
+
+  function typeLikeHuman(input, text) {
+    input.focus();
+    setReactValue(input, String(text));
+    return sleep(50);
+  }
+
+  function dispatchPaste(input, text) {
+    checkGuard();
+    try {
+      var dt = new DataTransfer();
+      dt.setData("text/plain", text);
+      input.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    } catch (e) {}
+  }
+  // ── end primitives ──
 
   // Poll for a leaf element whose trimmed text exactly equals `text` (the
   // recipient dropdown renders the pasted address as an item).
@@ -274,17 +328,6 @@
       }
       return null;
     }, timeoutMs, "withdraw/exact-text-not-found: " + text);
-  }
-
-  function humanDelay(ms) { return D.sleep(ms || 0); }
-  function humanClick(el) { D.realisticClick(el); return D.sleep(50); }
-
-  var setReactValue = D.setReactValue;
-
-  function typeLikeHuman(input, text) {
-    input.focus();
-    setReactValue(input, String(text));
-    return D.sleep(50);
   }
 
   function isDisabled(el) {
@@ -408,7 +451,7 @@
         if (idvReason) throw idvBlockedError(idvReason);
         throw new Error("withdraw/recipient-not-found: " + SEL.RECIPIENT_INPUT);
       }
-      await D.sleep(150);
+      await sleep(150);
     }
   }
 
@@ -418,7 +461,7 @@
     for (var attempt = 1; attempt <= 3; attempt++) {
       input.focus();
       await typeLikeHuman(input, address);
-      await D.sleep(600); // let onChange + any post-hydration re-render settle
+      await sleep(600); // let onChange + any post-hydration re-render settle
       var live = document.querySelector(SEL.RECIPIENT_INPUT) || input;
       if (String(live.value || "").trim().length > 0) return live;
       console.warn("[withdraw] enterRecipient: input cleared after typing (attempt " + attempt + "/3) — likely typed before hydration; retrying");
@@ -447,7 +490,7 @@
 
   async function enterRecipient(address) {
     var input = await waitForElement(SEL.RECIPIENT_INPUT, 15000);
-    await D.sleep(300); // brief settle so we're not typing into a still-mounting field
+    await sleep(300); // brief settle so we're not typing into a still-mounting field
     input = await typeRecipientAddress(input, address);
 
     // Clicking the suggestion cell advances off recipientEntry. Re-query the cell
@@ -532,7 +575,7 @@
       // the step name nor `notStep` can tell it apart.
       if (findNetworkWarningAck()) return "networkWarning";
       if (step === "l2SelectionStep" && step !== notStep) return "network";
-      await D.sleep(150);
+      await sleep(150);
     }
     // Report whether an acknowledge button exists in the document at all: if one
     // does, nothing resolved because every match was stale — a different diagnosis
@@ -550,7 +593,7 @@
     var start = Date.now();
     while (Date.now() - start < 1500) {
       if (readActiveStep() !== "assetSelection") return;
-      await D.sleep(150);
+      await sleep(150);
     }
     var again = document.querySelector('[data-testid="' + el.getAttribute("data-testid") + '"]');
     if (again) await humanClick(again);
@@ -594,7 +637,7 @@
       var incompatible = (direct !== null && isDisabled(direct)) || isNoCompatibleAssets();
       incompatibleStreak = incompatible ? incompatibleStreak + 1 : 0;
       if (incompatibleStreak >= INCOMPATIBLE_CONFIRM_POLLS) throw addressUnsupportedError();
-      await D.sleep(150);
+      await sleep(150);
     }
     // 5s without an enabled target cell. Surface incompatibility specifically,
     // else enumerate what's on screen for a useful not-found error.
@@ -771,7 +814,7 @@
           return (b && !isDisabled(b)) ? b : null;
         }, 5000, "withdraw/travel-rule-self-submit-not-ready");
         await humanClick(submitSelf);
-        await D.sleep(500);
+        await sleep(500);
         return "filled";
       }
       // Checkbox not found — fall through to manual entry (no regression).
@@ -782,14 +825,14 @@
     var nameInput = await waitForElement(SEL.BENEFICIARY_NAME, 5000);
     nameInput.focus();
     setReactValue(nameInput, data.name);
-    await D.sleep(200);
+    await sleep(200);
 
     // Variant A: country-select visible immediately. Variant B: it only appears
     // after clicking Continue.
     var countrySelect = queryVisible(SEL.COUNTRY_SELECT);
     if (!countrySelect) {
       var submit0 = queryVisible(SEL.SUBMIT_BUTTON);
-      if (submit0) submit0.click();
+      if (submit0) plainClick(submit0);
       try {
         countrySelect = await waitForElement(SEL.COUNTRY_SELECT, 10000);
       } catch (e) {
@@ -798,17 +841,17 @@
     }
 
     if (data.country) {
-      countrySelect.click();
-      await D.sleep(400);
+      plainClick(countrySelect);
+      await sleep(400);
       try {
         var opt = await waitForElement(SEL.countryOption(data.country), 5000);
-        opt.click();
+        plainClick(opt);
       } catch (e) { /* option missing — let a downstream error surface it */ }
     }
 
     var submit = await waitForElement(SEL.SUBMIT_BUTTON, 5000);
-    submit.click();
-    await D.sleep(500);
+    plainClick(submit);
+    await sleep(500);
     return "filled";
   }
 
@@ -820,7 +863,7 @@
       || container.querySelector('button, [role="button"]')
       || container;
     await humanClick(button); // cds dropdown ignores a plain .click() — needs pointer events
-    await D.sleep(400);
+    await sleep(400);
     var deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
       for (var i = 0; i < SEL.DROPDOWN_OPTION_SELECTORS.length; i++) {
@@ -828,12 +871,12 @@
         for (var j = 0; j < opts.length; j++) {
           if (getInnerText(opts[j]).trim() === String(optionLabel).trim()) {
             await humanClick(opts[j]);
-            await D.sleep(200);
+            await sleep(200);
             return;
           }
         }
       }
-      await D.sleep(150);
+      await sleep(150);
     }
     throw new Error("withdraw/dropdown-option-not-found: " + optionLabel);
   }
@@ -858,8 +901,8 @@
     }
 
     var submit = await waitForElement(SEL.TRANSFER_SUBMIT, 5000);
-    submit.click();
-    await D.sleep(500);
+    plainClick(submit);
+    await sleep(500);
     return "filled";
   }
 
@@ -898,7 +941,7 @@
         throw new Error('withdraw/currency-toggle-not-found: cannot switch the amount input from "' + symbol + '" to "' + requested + '" mode');
       }
       await humanClick(toggle);
-      await D.sleep(400);
+      await sleep(400);
     }
     throw new Error('Could not switch Coinbase amount input to "' + requested + '" mode');
   }
@@ -959,7 +1002,7 @@
       if (queryVisible(SEL.SEND_NOW) || !queryVisible(SEL.CURRENCY_INPUT)) return;
       var err = queryVisible(SEL.AMOUNT_ERROR_MESSAGE);
       if (err && getInnerText(err)) throw new Error(readAmountValidationError());
-      await D.sleep(150);
+      await sleep(150);
     }
   }
 
@@ -977,7 +1020,7 @@
       var btn = D.stepPrimaryButton(step);
       if (btn && !isDisabled(btn)) return btn;
       if (Date.now() >= end) throw new Error(errCode);
-      await D.sleep(150);
+      await sleep(150);
     }
   }
 
@@ -986,7 +1029,7 @@
     var step = await waitForElement(SEL.STEP_DESTINATION_TAG, 1000);
     input.focus();
     setReactValue(input, tag);
-    await D.sleep(200); // let Coinbase's async tag-format validation settle
+    await sleep(200); // let Coinbase's async tag-format validation settle
     // The confirm has no testid and no icon; data-variant is the only locale-invariant handle.
     var continueBtn = await waitForStepPrimary(
       step, 5000, "withdraw/destination-tag-continue-not-found"
@@ -1128,7 +1171,10 @@
     // Advanced past confirm into a 2FA/risk/success gate — read what we can; the
     // caller's detectAndHandle2fa handles the gate next. (No pre-click verify: the
     // send already advanced, so there's nothing left to prevent.)
-    if (which !== SEL.SEND_NOW) return readSendPreview();
+    if (which !== SEL.SEND_NOW) {
+      closeSendGuard("post-send-gate"); // already past confirm: the send may be in
+      return readSendPreview();
+    }
 
     var details = readSendPreview();
     // Verify the previewed recipient matches what the host authorized BEFORE
@@ -1136,6 +1182,7 @@
     if (!previewRecipientMatches(details.recipient, authorizedAddress)) throw recipientMismatchError();
     await humanDelay(500); // let the preview settle / human "review"
     var sendBtn = await waitForElement(SEL.SEND_NOW, 5000);
+    closeSendGuard("send-now"); // AUTH-4657: nothing is reported past this point
     await humanClick(sendBtn);
     return details;
   }
@@ -1252,7 +1299,7 @@
       return { kind: "id-verification", completeBefore: null };
     }
     bc("2fa:settle-wait");
-    await D.sleep(1500); // let the modal settle before inspecting buttons
+    await sleep(1500); // let the modal settle before inspecting buttons
     bc("2fa:settled", readActiveStep() || "no-active-step");
     if (past2fa()) return { kind: "none" };
     if (riskIdVerificationSettled() || sawIdVerification()) {
@@ -1455,14 +1502,6 @@
     return window.__zhWithdrawState;
   }
 
-  function dispatchPaste(input, text) {
-    try {
-      var dt = new DataTransfer();
-      dt.setData("text/plain", text);
-      input.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
-    } catch (e) {}
-  }
-
   // Newer Coinbase builds render one input per digit; older builds use a single
   // field. Distribute one digit per box when there are several, else set the
   // whole value (+ paste for variants that only split on paste).
@@ -1497,7 +1536,7 @@
     var choseMethod = false;
     if (!queryVisible(SEL.OTP_INPUT) && await chooseOtpMethod()) {
       choseMethod = true;
-      await D.sleep(300);
+      await sleep(300);
     }
     var input;
     try {
@@ -1510,7 +1549,7 @@
       throw e;
     }
     fillOtpCode(input, code);
-    await D.sleep(300);
+    await sleep(300);
     var start = Date.now();
     while (Date.now() - start < 15000) {
       if (past2fa()) return true;
@@ -1519,7 +1558,7 @@
         if (current && current.value === "") return false; // rejected: field cleared
         if (!queryVisible(SEL.OTP_INPUT) && !queryVisible(SEL.OTP_CONTAINER)) return true; // advanced
       }
-      await D.sleep(500);
+      await sleep(500);
     }
     throw new Error("withdraw/otp-timeout: Coinbase didn't accept or reject the code");
   }
@@ -1534,7 +1573,7 @@
       if (await chooseOtpMethod()) return "otp";
       if (isOtpScreen()) return "otp";
       if (queryVisible(SEL.PASSKEY_PROMPT)) return "passkey";
-      await D.sleep(500);
+      await sleep(500);
     }
     // A known hold outranks a bare "processing": the risk screen may have vanished
     // without advancing, so keep the host polling the held check.
@@ -1564,6 +1603,43 @@
 
   function fundsNotAvailableRejection() {
     return { state: "rejected", reason: "funds_not_available" };
+  }
+
+  // AUTH-4657: a Coinbase screen (coinbase-screens.js) can replace any step
+  // before Send now. What each screen means, per guard phase. Only `armed` is
+  // mapped: after Send now nothing is reported, because funds may be moving.
+  var SEND_SCREEN_RESULT = {
+    armed: { unavailable: { state: "rejected", reason: "send_unavailable" } }
+  };
+
+  function screenGate() {
+    return window.__zhCoinbaseScreens || null;
+  }
+
+  function postSendGateVisible() {
+    return POST_SEND_GATES.some(function (sel) { return queryVisible(sel); });
+  }
+
+  // A fresh guard per start(); without the registry nothing is watched.
+  function openSendGuard() {
+    var gate = screenGate();
+    activeGuard = gate
+      ? gate.guard("send", { ids: Object.keys(SEND_SCREEN_RESULT.armed), submittedWhen: postSendGateVisible })
+      : null;
+    if (activeGuard) activeGuard.arm();
+  }
+
+  function closeSendGuard(reason) {
+    if (activeGuard) activeGuard.close(reason);
+  }
+
+  function runPreSubmit(chain) {
+    return activeGuard ? activeGuard.run(chain) : chain;
+  }
+
+  function sendScreenResult(id) {
+    var r = id && SEND_SCREEN_RESULT.armed[id];
+    return r ? JSON.parse(JSON.stringify(r)) : null;
   }
 
   async function continueInner(payload) {
@@ -1614,23 +1690,26 @@
         // Capture this send's commit response; drop any prior send's first.
         installCommitInterceptor();
         forgetCommittedSend();
-        phase = bc("open-send-modal");
-        await enterSendFlow();
-        phase = bc("enter-recipient");
-        await enterRecipient(params.address);
-        await runSelectionPhase(params);
-        phase = bc("enter-amount");
-        await enterAmount(params.amount, params.asset);
-        await selectRecipientTypeIfPresent(params.recipientType || "self-custody");
-        // Self-transfer: the webapp sends transferDetails.purpose "Transfer to my
-        // own account". Signal it so fillTravelRule ticks the "I'm transferring to
-        // myself" checkbox (auto-fills beneficiary + BR CPF) instead of typing.
-        var isSelfTransfer = !!(params.transferDetails &&
-          params.transferDetails.purpose === "Transfer to my own account");
-        await fillTravelRule(params.travelRule, { selfTransfer: isSelfTransfer });
-        await fillTransferDetails(params.transferDetails);
-        phase = bc("confirm-send");
-        var details = await confirmAndSend(params.address);
+        openSendGuard();
+        var details = await runPreSubmit((async function () {
+          phase = bc("open-send-modal");
+          await enterSendFlow();
+          phase = bc("enter-recipient");
+          await enterRecipient(params.address);
+          await runSelectionPhase(params);
+          phase = bc("enter-amount");
+          await enterAmount(params.amount, params.asset);
+          await selectRecipientTypeIfPresent(params.recipientType || "self-custody");
+          // Self-transfer: the webapp sends transferDetails.purpose "Transfer to my
+          // own account". Signal it so fillTravelRule ticks the "I'm transferring to
+          // myself" checkbox (auto-fills beneficiary + BR CPF) instead of typing.
+          var isSelfTransfer = !!(params.transferDetails &&
+            params.transferDetails.purpose === "Transfer to my own account");
+          await fillTravelRule(params.travelRule, { selfTransfer: isSelfTransfer });
+          await fillTransferDetails(params.transferDetails);
+          phase = bc("confirm-send");
+          return await confirmAndSend(params.address);
+        })());
         moduleState().details = details; // persist for continue()
         phase = bc("detect-2fa");
         var outcome = await detectAndHandle2fa();
@@ -1638,6 +1717,8 @@
         if (outcome.kind === "none") return await finalizeSubmitted(details);
         return toState(outcome, details);
       } catch (e) {
+        var shown = sendScreenResult(e && (e.zhScreen || e.zhHalted));
+        if (shown) return shown;
         // A prior transfer pending verification blocks this send — terminal, but
         // surface its details (not a generic error) so the host can tell the user
         // what to resolve at coinbase.com.
@@ -1659,6 +1740,8 @@
         if (isHoldModalPresent()) {
           return fundsNotAvailableRejection();
         }
+        var late = sendScreenResult(activeGuard ? await activeGuard.afterFailure(600) : null);
+        if (late) return late;
         // Unclassified failure. The `start-failed [ctx]:` wrapper is parsed
         // downstream, so keep the shape.
         var ctx = failureContext(phase);
@@ -1687,6 +1770,9 @@
     // Test seam.
     __internals: {
       SEL: SEL,
+      guard: function () { return activeGuard; },
+      humanClick: humanClick,
+      plainClick: plainClick,
       readActiveStep: readActiveStep,
       failureContext: failureContext
     }

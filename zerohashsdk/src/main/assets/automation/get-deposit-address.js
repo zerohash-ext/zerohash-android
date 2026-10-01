@@ -46,20 +46,61 @@
   var DEADLINE = Date.now() + 15000;
   function timeLeft() { return DEADLINE - Date.now(); }
 
-  // Generic DOM/timing helpers, injected via window.__zhDom (see dom-helpers.js,
-  // prepended by Coinbase.swift). Bound to short locals to keep call sites terse.
+  // Generic DOM/timing helpers, injected via window.__zhDom (see dom-helpers.js).
   var D = window.__zhDom;
-  var sleep = D.sleep;
   var $ = D.$;
-  var realisticClick = D.realisticClick;
-  var setReactValue = D.setReactValue;
+
+  // ── primitives (AUTH-4657) ──
+  // Every page action and wait goes through here, and only here calls
+  // checkGuard(): once a Coinbase screen halts the call, the abandoned run
+  // throws at its next click, keystroke or wait. Outside this block never call
+  // D.sleep, D.realisticClick, D.waitFor, D.waitUntil, D.setReactValue,
+  // .click() or dispatchEvent directly (screen-primitives-source.test.mjs).
+  var activeGuard = null; // this call's guard; null without coinbase-screens.js
+
+  function checkGuard() {
+    if (activeGuard) activeGuard.check();
+  }
+
+  function sleep(ms) {
+    checkGuard();
+    return D.sleep(ms).then(function (v) { checkGuard(); return v; });
+  }
+
+  function realisticClick(el) {
+    checkGuard();
+    return D.realisticClick(el);
+  }
+
+  function setReactValue(input, value) {
+    checkGuard();
+    return D.setReactValue(input, value);
+  }
+
+  // Native value setter + input/change events, so React picks up the change.
+  function setInputValue(input, value) {
+    checkGuard();
+    var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    setter.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  // waitUntil/waitFor take an explicit deadline; wrap to pass this run's DEADLINE.
+  function waitUntil(find, timeoutMs) {
+    checkGuard();
+    return D.waitUntil(find, timeoutMs, DEADLINE).then(function (v) { checkGuard(); return v; });
+  }
+
+  function waitFor(sel, timeoutMs) {
+    checkGuard();
+    return D.waitFor(sel, timeoutMs, DEADLINE).then(function (v) { checkGuard(); return v; });
+  }
+  // ── end primitives ──
 
   // Telemetry breadcrumb (no-op unless telemetry is installed + enabled) — the
   // mobile twin of the extension's pushBreadcrumb.
   function bc(phase, note) { if (window.__zhTelemetry) window.__zhTelemetry.breadcrumb(phase, note); }
-  // waitUntil/waitFor now take an explicit deadline; wrap to pass this run's DEADLINE.
-  function waitUntil(find, timeoutMs) { return D.waitUntil(find, timeoutMs, DEADLINE); }
-  function waitFor(sel, timeoutMs) { return D.waitFor(sel, timeoutMs, DEADLINE); }
 
   function idvGate() {
     return window.__zhCoinbaseIdv || null;
@@ -261,11 +302,7 @@
     var input = document.querySelector("input[inputmode], input[type='text']");
     if (input && AMOUNT) {
       input.focus();
-      // Use the native value setter so React picks up the change.
-      var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-      setter.call(input, AMOUNT.value);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
+      setInputValue(input, AMOUNT.value);
     }
     var submit = $(PRIMARY_SUBMIT);
     if (submit) realisticClick(submit);
@@ -276,6 +313,7 @@
     var idvCheckStartedAt = Date.now();
     var idvCode = await idvBlockedErrorCodeForAction("receives");
     if (idvCode) throw new Error(idvCode);
+    if (activeGuard) activeGuard.arm(); // AUTH-4657: screens count from here
     DEADLINE += Date.now() - idvCheckStartedAt;
     bc("open-modal");
     await awaitReceiveEntry();
@@ -325,5 +363,37 @@
     throw new Error("timeout");
   }
 
-  return run();
+  // AUTH-4657: a Coinbase screen (coinbase-screens.js) can replace any step.
+  // What each screen means, per guard phase. The guard is armed only after the
+  // IDV preflight, so an IDV block keeps its own code.
+  var RECEIVE_SCREEN_ERROR = { armed: { unavailable: "RECEIVE_UNAVAILABLE" } };
+
+  function screenGate() {
+    return window.__zhCoinbaseScreens || null;
+  }
+
+  function receiveScreenError(id) {
+    var code = id && RECEIVE_SCREEN_ERROR.armed[id];
+    return code ? new Error(code) : null;
+  }
+
+  async function runGuarded() {
+    var gate = screenGate();
+    if (!gate) return run();
+    activeGuard = gate.guard("receive", { ids: Object.keys(RECEIVE_SCREEN_ERROR.armed) });
+    try {
+      return await activeGuard.run(run());
+    } catch (e) {
+      var shown = receiveScreenError(e && (e.zhScreen || e.zhHalted));
+      if (shown) throw shown;
+      if (e && /^IDV_/.test(String(e.message))) throw e;
+      var late = receiveScreenError(await activeGuard.afterFailure(600));
+      if (late) throw late;
+      throw e;
+    } finally {
+      activeGuard.close("finished");
+    }
+  }
+
+  return runGuarded();
 })();

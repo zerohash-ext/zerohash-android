@@ -68,8 +68,10 @@ class CoinbaseDepositAssetSearchTest {
             code(domHelpersJs).contains("setReactValue: setReactValue"),
         )
         assertTrue(
-            "withdraw.js must consume the shared helper instead of carrying its own copy",
-            code(withdrawJs).contains("var setReactValue = D.setReactValue"),
+            "withdraw.js must call the shared D.setReactValue (behind its screen-guard " +
+                "primitive) instead of carrying its own native-setter copy",
+            code(withdrawJs).contains("D.setReactValue(") &&
+                !code(withdrawJs).contains("HTMLInputElement.prototype"),
         )
     }
 }
