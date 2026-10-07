@@ -11,7 +11,7 @@ class WithdrawDeadSelectorAssetTest {
     private val withdraw: String =
         File("src/main/assets/automation/withdraw.js").readText()
     private val domHelpers: String =
-        File("src/main/assets/automation/dom-helpers.js").readText()
+        File("src/main/assets/automation/shared-dom-helpers.js").readText()
 
     /** Comments stripped, so a guard never matches its own rationale. */
     private fun code(src: String): String =

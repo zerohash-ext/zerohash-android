@@ -9,7 +9,7 @@ class CoinbaseDepositAssetSearchTest {
     private val assetDir = File("src/main/assets/automation")
     private val depositJs: String = File(assetDir, "get-deposit-address.js").readText()
     private val withdrawJs: String = File(assetDir, "withdraw.js").readText()
-    private val domHelpersJs: String = File(assetDir, "dom-helpers.js").readText()
+    private val domHelpersJs: String = File(assetDir, "shared-dom-helpers.js").readText()
 
     private fun code(src: String): String =
         src.lineSequence().map { it.substringBefore("//") }.joinToString("\n")
@@ -62,10 +62,15 @@ class CoinbaseDepositAssetSearchTest {
 
     @Test
     fun setReactValueIsSharedRatherThanDuplicated() {
+        // The generated script publishes its surface with shorthand properties
+        // (`setReactValue,`), where the hand-written one wrote them out in full
+        // (`setReactValue: setReactValue`). Match either, so this keeps holding
+        // whether the file came from the library or is still hand-maintained.
         assertTrue(
-            "dom-helpers.js must export setReactValue — both the deposit filter and the " +
+            "shared-dom-helpers.js must export setReactValue — both the deposit filter and the " +
                 "withdraw recipient field depend on it",
-            code(domHelpersJs).contains("setReactValue: setReactValue"),
+            Regex("setReactValue(?:\\s*:\\s*setReactValue)?\\s*[,}]")
+                .containsMatchIn(code(domHelpersJs)),
         )
         assertTrue(
             "withdraw.js must call the shared D.setReactValue (behind its screen-guard " +

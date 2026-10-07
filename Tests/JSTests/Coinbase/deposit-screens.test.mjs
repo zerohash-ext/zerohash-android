@@ -12,7 +12,7 @@ const MODULE = ["zerohashsdk", "connectsdk"].find((m) =>
 );
 const asset = (name) =>
   readFileSync(fileURLToPath(new URL(`../../../${MODULE}/src/main/assets/automation/${name}`, import.meta.url)), "utf8");
-const DOM_HELPERS = asset("dom-helpers.js");
+const DOM_HELPERS = asset("shared-dom-helpers.js");
 const DEPOSIT = asset("get-deposit-address.js");
 const WAIT_MS = 60;
 

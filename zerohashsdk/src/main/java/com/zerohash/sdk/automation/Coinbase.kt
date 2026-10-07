@@ -211,7 +211,7 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
             showOverlay = showOverlay,
             waitForChallengeClearance = true,
             preludeAssets = listOf(
-                "automation/dom-helpers.js",
+                "automation/shared-dom-helpers.js",
                 "automation/coinbase-idv-gate.js",
                 "automation/coinbase-screens.js",
             ),
@@ -311,7 +311,7 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
     }
 
     private fun withdrawPrelude(session: AutomationSession): String =
-        session.asset("automation/dom-helpers.js") + "\n" +
+        session.asset("automation/shared-dom-helpers.js") + "\n" +
             session.asset("automation/coinbase-idv-gate.js") + "\n" +
             session.asset("automation/coinbase-screens.js") + "\n" +
             session.asset("automation/withdraw.js")

@@ -24,7 +24,7 @@ const SRC = fileURLToPath(
 const SOURCE = readFileSync(SRC, "utf8");
 export const WITHDRAW_SOURCE = SOURCE;
 const DOM_HELPERS = readFileSync(
-  fileURLToPath(new URL("../../../zerohashsdk/src/main/assets/automation/dom-helpers.js", import.meta.url)),
+  fileURLToPath(new URL("../../../zerohashsdk/src/main/assets/automation/shared-dom-helpers.js", import.meta.url)),
   "utf8"
 );
 
