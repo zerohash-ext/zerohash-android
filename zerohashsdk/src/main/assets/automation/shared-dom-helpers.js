@@ -123,18 +123,56 @@
     return summarizeTestids(collectTestids(), priorityRe, cap);
   }
 
+  // src/shared/internal/network.ts
+  async function fetchTextWithTimeout(url, init, timeoutMs) {
+    const controller = new AbortController();
+    const abortRequest = () => {
+      controller.abort();
+    };
+    const timer = setTimeout(abortRequest, timeoutMs);
+    try {
+      const response = await fetch(url, Object.assign({}, init, { signal: controller.signal }));
+      const text = await response.text();
+      return { status: response.status, text };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // src/shared/internal/text.ts
+  function trimmedText(value) {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const text = value.trim();
+    if (text.length === 0) {
+      return null;
+    }
+    return text;
+  }
+  function parseJsonOrNull(text) {
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return null;
+    }
+  }
+
   // src/shared/dom-helpers.ts
   window.__zhDom = {
     $,
     clickableAncestor,
     collectTestids,
+    fetchTextWithTimeout,
     normalizeTestid,
+    parseJsonOrNull,
     realisticClick,
     setReactValue,
     sleep,
     stepPrimaryButton,
     summarizeTestids,
     testidCensus,
+    trimmedText,
     waitFor,
     waitUntil
   };

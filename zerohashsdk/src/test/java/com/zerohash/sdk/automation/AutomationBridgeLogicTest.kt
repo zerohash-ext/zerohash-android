@@ -1,5 +1,6 @@
 package com.zerohash.sdk.automation
 
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -19,6 +20,15 @@ import org.junit.Test
  * covers the coalescing *policy* seam ([isCoalescable]).
  */
 class AutomationBridgeLogicTest {
+
+    companion object {
+        private const val FICTIONAL_USER_ID = "8b0c2f4e-1a2b-4c3d-9e8f-0a1b2c3d4e5f"
+        private const val REQUEST_ID = "request-1"
+        private const val SESSION_ID = "session-1"
+        private val FICTIONAL_PROFILE = AuthProfile(FICTIONAL_USER_ID, "Jane Mary", "Doe")
+        private val FICTIONAL_FAILURE = AuthProfileFailure(ERR_PROFILE_INDETERMINATE, "graphql_error")
+        private val REPLY_KEYS = setOf("id", "role", "success", "data", "error", "sessionId", "retryable")
+    }
 
     // ── endsSession: mirrors iOS WithdrawState.endsSession ──────────────────
 
@@ -223,5 +233,127 @@ class AutomationBridgeLogicTest {
     @Test
     fun balancesToJson_emptyList_isEmptyArray() {
         assertEquals(0, balancesToJson(emptyList()).length())
+    }
+
+    @Test
+    fun authStatusJson_signedOutHasNeitherProfileNorProfileFailure() {
+        val json = authStatusToJson(AuthStatusResult(loggedIn = false))
+
+        assertEquals(setOf("loggedIn"), json.keys().asSequence().toSet())
+    }
+
+    @Test
+    fun authStatusJson_carriesTheProfile() {
+        val json = authStatusToJson(AuthStatusResult(loggedIn = true, profile = FICTIONAL_PROFILE))
+        val p = json.getJSONObject("profile")
+
+        assertTrue(json.getBoolean("loggedIn"))
+        assertEquals(setOf("userId", "firstName", "lastName"), p.keys().asSequence().toSet())
+        assertEquals("Jane Mary", p.getString("firstName"))
+    }
+
+    @Test
+    fun authLoginJson_keepsOutcome_andProfileOnlyWhenSet() {
+        val closed = authLoginToJson(AuthLoginResult(loggedIn = false, outcome = "user-closed"))
+        assertEquals(setOf("loggedIn", "outcome"), closed.keys().asSequence().toSet())
+
+        val ok = authLoginToJson(AuthLoginResult(loggedIn = true, outcome = "success", profile = FICTIONAL_PROFILE))
+        assertEquals("success", ok.getString("outcome"))
+        assertEquals("Doe", ok.getJSONObject("profile").getString("lastName"))
+    }
+
+    @Test
+    fun authStatusJson_carriesTheProfileFailureInsteadOfAProfile() {
+        val result = AuthStatusResult(loggedIn = true, profileFailure = FICTIONAL_FAILURE)
+
+        val json = authStatusToJson(result)
+        val failure = json.getJSONObject("profileFailure")
+
+        assertEquals(setOf("loggedIn", "profileFailure"), json.keys().asSequence().toSet())
+        assertTrue(json.getBoolean("loggedIn"))
+        assertEquals(setOf("error", "reason"), failure.keys().asSequence().toSet())
+        assertEquals(ERR_PROFILE_INDETERMINATE, failure.getString("error"))
+        assertEquals("graphql_error", failure.getString("reason"))
+    }
+
+    @Test
+    fun authLoginJson_carriesOutcomeAndTheProfileFailureInsteadOfAProfile() {
+        val result = AuthLoginResult(loggedIn = true, outcome = "success", profileFailure = FICTIONAL_FAILURE)
+
+        val json = authLoginToJson(result)
+        val failure = json.getJSONObject("profileFailure")
+
+        assertEquals(setOf("loggedIn", "outcome", "profileFailure"), json.keys().asSequence().toSet())
+        assertTrue(json.getBoolean("loggedIn"))
+        assertEquals("success", json.getString("outcome"))
+        assertEquals(setOf("error", "reason"), failure.keys().asSequence().toSet())
+        assertEquals(ERR_PROFILE_INDETERMINATE, failure.getString("error"))
+        assertEquals("graphql_error", failure.getString("reason"))
+    }
+
+    @Test
+    fun authJson_withAProfileHasNoProfileFailureKey() {
+        val status = authStatusToJson(AuthStatusResult(loggedIn = true, profile = FICTIONAL_PROFILE))
+        val login = authLoginToJson(AuthLoginResult(loggedIn = true, outcome = "success", profile = FICTIONAL_PROFILE))
+
+        assertEquals(setOf("loggedIn", "profile"), status.keys().asSequence().toSet())
+        assertEquals(setOf("loggedIn", "outcome", "profile"), login.keys().asSequence().toSet())
+    }
+
+    @Test
+    fun successReply_forAStatusProfileFailure_isSuccessfulAndNotRetryable() {
+        val data = authStatusToJson(AuthStatusResult(loggedIn = true, profileFailure = FICTIONAL_FAILURE))
+
+        val reply = replyJson(REQUEST_ID, success = true, data = data, error = null)
+        val replyData = reply.getJSONObject("data")
+
+        assertEquals(REPLY_KEYS, reply.keys().asSequence().toSet())
+        assertEquals(REQUEST_ID, reply.getString("id"))
+        assertEquals("zeroauth-native", reply.getString("role"))
+        assertTrue(reply.getBoolean("success"))
+        assertFalse(reply.getBoolean("retryable"))
+        assertEquals(JSONObject.NULL, reply.get("error"))
+        assertEquals(JSONObject.NULL, reply.get("sessionId"))
+        assertEquals(setOf("loggedIn", "profileFailure"), replyData.keys().asSequence().toSet())
+        assertTrue(replyData.getBoolean("loggedIn"))
+        assertEquals("graphql_error", replyData.getJSONObject("profileFailure").getString("reason"))
+    }
+
+    @Test
+    fun successReply_forALoginProfileFailure_isSuccessfulAndNotRetryable() {
+        val login = AuthLoginResult(loggedIn = true, outcome = "success", profileFailure = FICTIONAL_FAILURE)
+
+        val reply = replyJson(REQUEST_ID, success = true, data = authLoginToJson(login), error = null)
+        val replyData = reply.getJSONObject("data")
+
+        assertEquals(REPLY_KEYS, reply.keys().asSequence().toSet())
+        assertTrue(reply.getBoolean("success"))
+        assertFalse(reply.getBoolean("retryable"))
+        assertEquals(JSONObject.NULL, reply.get("error"))
+        assertEquals(setOf("loggedIn", "outcome", "profileFailure"), replyData.keys().asSequence().toSet())
+        assertTrue(replyData.getBoolean("loggedIn"))
+        assertEquals("success", replyData.getString("outcome"))
+        assertEquals(ERR_PROFILE_INDETERMINATE, replyData.getJSONObject("profileFailure").getString("error"))
+    }
+
+    @Test
+    fun errorReply_carriesTheErrorSessionAndTelemetry_andNullData() {
+        val telemetry = JSONArray().put(JSONObject().put("event_name", "auth_profile_result"))
+
+        val reply = replyJson(REQUEST_ID, false, null, "timeout after 30000ms", true, SESSION_ID, telemetry)
+
+        assertEquals(REPLY_KEYS + "telemetry", reply.keys().asSequence().toSet())
+        assertFalse(reply.getBoolean("success"))
+        assertTrue(reply.getBoolean("retryable"))
+        assertEquals(JSONObject.NULL, reply.get("data"))
+        assertEquals("timeout after 30000ms", reply.getString("error"))
+        assertEquals(SESSION_ID, reply.getString("sessionId"))
+        assertEquals(1, reply.getJSONArray("telemetry").length())
+    }
+
+    @Test
+    fun profileCodes_areNotRetryableByMessagePrefix() {
+        assertFalse(isRetryable(ERR_PROFILE_INDETERMINATE))
+        assertFalse(isRetryable(ERR_PROFILE_INCOMPLETE))
     }
 }

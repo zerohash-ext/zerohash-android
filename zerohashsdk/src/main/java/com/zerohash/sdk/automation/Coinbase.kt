@@ -40,7 +40,14 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
     // openers in the JS assets are now only a fallback.
     private const val RECEIVE_URL = "https://www.coinbase.com/receive"
     private const val SEND_URL = "https://www.coinbase.com/send"
-    private const val STATUS_TIMEOUT_MS = 20_000L
+    private const val STATUS_TIMEOUT_MS = 30_000L
+    private const val PROFILE_DEADLINE_MARGIN_MS = 3_000L
+    private const val PROBE_TIMEOUT_PREFIX = "timeout"
+    private const val PROBE_TIMEOUT_REASON = "timeout"
+    private const val PROBE_TRANSIENT_REASON = "http_error"
+    internal val STATUS_PRELUDE_ASSETS = listOf("automation/shared-dom-helpers.js")
+    internal val PROFILE_ATTEMPT_LOG_KEYS = listOf("attempt", "outcome", "http_status", "latency_ms")
+    internal val PROFILE_RESULT_LOG_KEYS = listOf("outcome", "attempts", "total_ms", "error")
 
     // Match iOS getBalance: a short normal budget, a long budget when the user is
     // solving a Cloudflare challenge on the revealed page.
@@ -76,6 +83,8 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
             url = HOME_URL,
             scriptAsset = "automation/auth-status.js",
             timeoutMs = STATUS_TIMEOUT_MS,
+            preludeAssets = STATUS_PRELUDE_ASSETS,
+            paramsJson = statusParamsJson(System.currentTimeMillis()),
         ) { host ->
             when (host) {
                 "login.coinbase.com" -> SettleDecision.Answer(JSONObject().put("loggedIn", false))
@@ -84,15 +93,98 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
             }
         }
 
+        val profileDiag = raw?.optJSONObject("profileDiag")
+        if (profileDiag != null) {
+            logProfileDiag(profileDiag)
+        }
+
+        val result = parseStatus(raw)
+        Log.d(TAG, "status OK loggedIn=${result.loggedIn} profile=${result.profile != null}")
+
+        val profileFailure = result.profileFailure
+        if (profileFailure != null) {
+            Log.w(TAG, "status profileFailure error=${profileFailure.error} reason=${profileFailure.reason}")
+        }
+
+        return result
+    }
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal fun statusParamsJson(nowMs: Long): String =
+        JSONObject().put("profileDeadlineMs", nowMs + STATUS_TIMEOUT_MS - PROFILE_DEADLINE_MARGIN_MS).toString()
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal fun parseStatus(raw: JSONObject?): AuthStatusResult {
         // Match iOS: a missing/non-boolean loggedIn is a broken probe, not a
         // silent "logged out" — surface it as invalid rather than masking it.
         val obj = raw ?: throw PlatformException("invalid JS return")
         if (!obj.has("loggedIn") || obj.isNull("loggedIn")) {
             throw PlatformException("invalid JS return")
         }
-        val loggedIn = obj.optBoolean("loggedIn")
-        Log.d(TAG, "status OK loggedIn=$loggedIn")
-        return AuthStatusResult(loggedIn)
+
+        if (!obj.optBoolean("loggedIn")) {
+            return AuthStatusResult(loggedIn = false)
+        }
+
+        val profileFailure = obj.optJSONObject("profileFailure")
+        if (profileFailure != null) {
+            return failedProfileStatus(profileFailure.optString("reason"))
+        }
+
+        val profileJson = obj.optJSONObject("profile")
+        if (profileJson == null) {
+            return failedProfileStatus(UNKNOWN_PROFILE_REASON)
+        }
+
+        val profile = AuthProfile.fromJson(profileJson)
+        if (profile == null) {
+            return failedProfileStatus(MISSING_FIELD_REASON)
+        }
+
+        return AuthStatusResult(loggedIn = true, profile = profile)
+    }
+
+    private fun failedProfileStatus(reason: String): AuthStatusResult =
+        AuthStatusResult(loggedIn = true, profileFailure = AuthProfileFailure.forReason(reason))
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal fun describeProfileRow(row: JSONObject, keys: List<String>): String =
+        keys.joinToString(" ") { key -> "$key=${logValueOrDash(row.opt(key))}" }
+
+    private fun logValueOrDash(value: Any?): String {
+        if (value == null || value == JSONObject.NULL) {
+            return "-"
+        }
+
+        return value.toString()
+    }
+
+    private fun logProfileDiag(diag: JSONObject) {
+        val attempts = diag.optJSONArray("attempts")
+        if (attempts != null) {
+            logFailedAttempts(attempts)
+        }
+
+        val result = diag.optJSONObject("result")
+        if (result == null) {
+            return
+        }
+
+        val line = "auth_profile_result ${describeProfileRow(result, PROFILE_RESULT_LOG_KEYS)}"
+        if (result.isNull("error")) {
+            Log.d(TAG, line)
+        } else {
+            Log.e(TAG, line)
+        }
+    }
+
+    private fun logFailedAttempts(attempts: JSONArray) {
+        for (index in 0 until attempts.length()) {
+            val attempt = attempts.optJSONObject(index)
+            if (attempt != null && attempt.optString("outcome") != "ok") {
+                Log.w(TAG, "auth_profile_attempt ${describeProfileRow(attempt, PROFILE_ATTEMPT_LOG_KEYS)}")
+            }
+        }
     }
 
     /**
@@ -256,10 +348,6 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
     /**
      * Runs the Coinbase login modal and resolves once it closes.
      *
-     * Must be called from a coroutine. Presents [CoinbaseLoginActivity] (visible,
-     * SDK-owned); a redirect to www.coinbase.com == success, on which we re-probe
-     * [status] to report `loggedIn` authoritatively (matches iOS `login`).
-     *
      * Port of `Coinbase.login(ctx:)`.
      */
     override suspend fun login(activity: Activity): AuthLoginResult {
@@ -267,10 +355,52 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
         val outcome = CoinbaseLoginActivity.present(activity)
         Log.d(TAG, "login modal closed outcome=$outcome")
         return when (outcome) {
-            "success" -> AuthLoginResult(loggedIn = status(activity).loggedIn, outcome = "success")
+            "success" -> loginProbe(activity)
             else -> AuthLoginResult(loggedIn = false, outcome = outcome)
         }
     }
+
+    private suspend fun loginProbe(activity: Activity): AuthLoginResult {
+        try {
+            val probe = status(activity)
+
+            return AuthLoginResult(
+                loggedIn = probe.loggedIn,
+                outcome = "success",
+                profile = probe.profile,
+                profileFailure = probe.profileFailure,
+            )
+        } catch (e: PlatformException) {
+            val reason = loginProbeFailureReason(e.message)
+            if (reason == null) {
+                throw e
+            }
+
+            Log.w(TAG, "login status probe failed after sign-in; reporting profileFailure reason=$reason")
+            return loginAfterProbeFailure(reason)
+        }
+    }
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal fun loginProbeFailureReason(message: String?): String? {
+        if (message == null) {
+            return null
+        }
+
+        if (message.startsWith(PROBE_TIMEOUT_PREFIX)) {
+            return PROBE_TIMEOUT_REASON
+        }
+
+        if (TRANSIENT_PREFIXES.any { message.startsWith(it) }) {
+            return PROBE_TRANSIENT_REASON
+        }
+
+        return null
+    }
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal fun loginAfterProbeFailure(reason: String): AuthLoginResult =
+        AuthLoginResult(loggedIn = true, outcome = "success", profileFailure = AuthProfileFailure.forReason(reason))
 
     // ── WithdrawFlow ─────────────────────────────────────────────────────────
     //

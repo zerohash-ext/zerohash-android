@@ -206,13 +206,12 @@ internal class AutomationBridge(
         return when (operation) {
             "auth.status" -> {
                 val p = platform.requireFlow<AuthFlow>(operation)
-                OpResult(JSONObject().put("loggedIn", p.status(activity).loggedIn))
+                OpResult(authStatusToJson(p.status(activity)))
             }
 
             "auth.login" -> {
                 val p = platform.requireFlow<AuthFlow>(operation)
-                val r = p.login(activity)
-                OpResult(JSONObject().put("loggedIn", r.loggedIn).put("outcome", r.outcome))
+                OpResult(authLoginToJson(p.login(activity)))
             }
 
             "getBalance" -> {
@@ -373,18 +372,9 @@ internal class AutomationBridge(
         sessionId: String? = null,
         telemetry: JSONArray? = null,
     ) {
-        val response = JSONObject()
-            .put("id", id)
-            .put("role", ROLE_NATIVE)
-            .put("success", success)
-            .put("data", data ?: JSONObject.NULL)
-            .put("error", error ?: JSONObject.NULL)
-            .put("sessionId", sessionId ?: JSONObject.NULL)
-            .put("retryable", retryable)
-
         // Telemetry rides the response (ZeroAuthResponse.telemetry); the client's
         // onEvents sink drains it. Absent when off.
-        if (telemetry != null) response.put("telemetry", telemetry)
+        val response = replyJson(id, success, data, error, retryable, sessionId, telemetry)
 
         val envelope = JSONObject()
             .put("type", RESPONSE_TYPE)
@@ -417,7 +407,7 @@ internal class AutomationBridge(
 
     companion object {
         private const val TAG = "ZHAutomation"
-        private const val ROLE_NATIVE = "zeroauth-native"
+        internal const val ROLE_NATIVE = "zeroauth-native"
         private const val RESPONSE_TYPE = "scraping-webview-response"
 
         // Platform-prefixed SDK version, mirroring iOS "ios-<version>".
@@ -449,7 +439,7 @@ internal fun endsSession(state: JSONObject): Boolean = when (state.optString("st
 internal fun needsPagePresented(payloadJson: String): Boolean =
     runCatching { JSONObject(payloadJson).optString("kind") }.getOrNull() != "poll"
 
-private val TRANSIENT_PREFIXES = listOf("timeout", "load failed:")
+internal val TRANSIENT_PREFIXES = listOf("timeout", "load failed:")
 
 internal fun isRetryable(msg: String): Boolean =
     msg.startsWith("BALANCES_INDETERMINATE") ||
@@ -459,6 +449,57 @@ internal fun isRetryable(msg: String): Boolean =
 internal fun isSafeToRetry(operation: String): Boolean = when (operation) {
     "auth.login", "auth.status", "getBalance", "getDepositAddress", "core.ping" -> true
     else -> false
+}
+
+internal fun authStatusToJson(r: AuthStatusResult): JSONObject =
+    withProfile(JSONObject().put("loggedIn", r.loggedIn), r.profile, r.profileFailure)
+
+internal fun authLoginToJson(r: AuthLoginResult): JSONObject =
+    withProfile(JSONObject().put("loggedIn", r.loggedIn).put("outcome", r.outcome), r.profile, r.profileFailure)
+
+private fun withProfile(json: JSONObject, profile: AuthProfile?, profileFailure: AuthProfileFailure?): JSONObject {
+    if (profile != null) {
+        json.put("profile", profile.toJson())
+    }
+
+    if (profileFailure != null) {
+        json.put("profileFailure", profileFailure.toJson())
+    }
+
+    return json
+}
+
+internal fun replyJson(
+    id: String,
+    success: Boolean,
+    data: Any?,
+    error: String?,
+    retryable: Boolean = false,
+    sessionId: String? = null,
+    telemetry: JSONArray? = null,
+): JSONObject {
+    val reply = JSONObject()
+        .put("id", id)
+        .put("role", AutomationBridge.ROLE_NATIVE)
+        .put("success", success)
+        .put("data", valueOrJsonNull(data))
+        .put("error", valueOrJsonNull(error))
+        .put("sessionId", valueOrJsonNull(sessionId))
+        .put("retryable", retryable)
+
+    if (telemetry != null) {
+        reply.put("telemetry", telemetry)
+    }
+
+    return reply
+}
+
+private fun valueOrJsonNull(value: Any?): Any {
+    if (value == null) {
+        return JSONObject.NULL
+    }
+
+    return value
 }
 
 /** Only the idempotent reads coalesce; every mutating/one-shot op runs on its
