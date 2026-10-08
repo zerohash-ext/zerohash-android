@@ -58,6 +58,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Debug only, before any WebView exists (AT-891) — see WebViewProxy.
+        WebViewProxy.applyDeviceProxy(applicationContext)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 

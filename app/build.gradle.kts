@@ -147,6 +147,9 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    // ProxyController for WebViewProxy (debug-only proxy pinning, AT-891);
+    // same version the SDK already uses.
+    implementation("androidx.webkit:webkit:1.10.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
