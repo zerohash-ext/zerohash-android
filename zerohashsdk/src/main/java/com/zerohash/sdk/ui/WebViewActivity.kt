@@ -24,7 +24,6 @@ import com.zerohash.sdk.internal.Constants
 import com.zerohash.sdk.internal.padForSystemBarsAndKeyboard
 import com.zerohash.sdk.automation.AutomationBridge
 import org.json.JSONObject
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Main view controller managing the embedded WebView.
@@ -52,10 +51,8 @@ class WebViewActivity : AppCompatActivity(),
         /** Allow-listed hosts for navigation and resource filtering. */
         const val EXTRA_ALLOW_HOSTS = "extra_allow_hosts"
 
-        // ConcurrentHashMap for thread-safe handler access. Entries are
-        // timestamped so a registered handler that is never consumed (e.g.
-        // activity-start failed silently, process killed before onCreate) is
-        // evicted on the next setCallbackHandler call.
+        // A registered handler no activity ever claims (activity-start failed
+        // silently, process killed before onCreate) is evicted after this.
         private const val HANDLER_TTL_MS = 5L * 60L * 1000L
 
         // Grace period after resuming from an OAuth Custom Tab before treating a
@@ -76,29 +73,19 @@ class WebViewActivity : AppCompatActivity(),
         // nothing to say about them.
         private val INERT_SCHEMES = setOf("data", "blob", "about")
 
-        private data class HandlerEntry(
-            val handler: CallbackHandler,
-            val createdAt: Long
-        )
-
-        private val callbackHandlers = ConcurrentHashMap<String, HandlerEntry>()
+        private val sessions = SessionRegistry(ttlMs = HANDLER_TTL_MS)
 
         internal fun setCallbackHandler(sessionId: String, handler: CallbackHandler) {
-            evictStale()
-            callbackHandlers[sessionId] = HandlerEntry(handler, System.currentTimeMillis())
-        }
-
-        private fun getCallbackHandler(sessionId: String): CallbackHandler? {
-            return callbackHandlers.remove(sessionId)?.handler
+            sessions.register(sessionId, handler)
         }
 
         internal fun removeCallbackHandler(sessionId: String) {
-            callbackHandlers.remove(sessionId)
+            sessions.release(sessionId)
         }
 
-        private fun evictStale() {
-            val cutoff = System.currentTimeMillis() - HANDLER_TTL_MS
-            callbackHandlers.entries.removeAll { it.value.createdAt < cutoff }
+        /** Closes the activity showing [sessionId], if any, without notifying the host. */
+        internal fun dismissSession(sessionId: String) {
+            sessions.dismiss(sessionId)
         }
     }
 
@@ -113,6 +100,7 @@ class WebViewActivity : AppCompatActivity(),
     private var sessionId: String? = null
     private var allowList: ZerohashAllowList = ZerohashAllowList.DEFAULT
     private var automationBridge: AutomationBridge? = null
+    private var isDismissed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -143,7 +131,7 @@ class WebViewActivity : AppCompatActivity(),
             }
             sessionId = sid
 
-            callbackHandler = getCallbackHandler(sid) ?: run {
+            callbackHandler = sessions.claim(sid, owner = this, onDismiss = ::dismissFromHost) ?: run {
                 Log.e(TAG, "Callback handler not found for session: $sid")
                 finish()
                 return
@@ -276,6 +264,7 @@ class WebViewActivity : AppCompatActivity(),
             WebViewMessageHandler.INTERFACE_NAME,
             allowedOrigins
         ) { _, message, _, _, _ ->
+            if (isDismissed) return@addWebMessageListener
             // No isMainFrame gate: the fund app runs inside the `fund-iframe`
             // subframe, and the scraping bridge posts to NativeAndroid from
             // there. `allowedOrigins` already restricts the listener to the
@@ -400,6 +389,14 @@ class WebViewActivity : AppCompatActivity(),
         }
     }
 
+    private fun dismissFromHost() {
+        runOnUiThread {
+            isDismissed = true
+            callbackHandler = null
+            finish()
+        }
+    }
+
     override fun onSessionClose() {
         if (BuildConfig.DEBUG) Log.d(TAG, "Session closed")
         finish()
@@ -497,7 +494,13 @@ class WebViewActivity : AppCompatActivity(),
                 }
             }
         } finally {
-            sessionId?.let { removeCallbackHandler(it) }
+            sessionId?.let { sid ->
+                if (isFinishing && !isChangingConfigurations) {
+                    sessions.release(sid)
+                } else {
+                    sessions.detach(sid, owner = this)
+                }
+            }
         }
     }
 

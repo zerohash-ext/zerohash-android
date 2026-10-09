@@ -104,6 +104,7 @@ class ZerohashCryptoWithdrawalsSession internal constructor(
     }
 
     fun cancel() {
+        session?.let { WebViewActivity.dismissSession(it.id) }
         session?.close()
         session = null
     }

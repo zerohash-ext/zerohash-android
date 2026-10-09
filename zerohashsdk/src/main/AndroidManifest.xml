@@ -27,7 +27,7 @@
         -->
         <activity
             android:name="com.zerohash.sdk.ui.WebViewActivity"
-            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|locale|layoutDirection|fontScale|density|smallestScreenSize|screenLayout"
             android:exported="false"
             android:launchMode="singleTop" />
 
