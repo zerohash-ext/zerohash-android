@@ -80,6 +80,8 @@ lint/tmp/
 ZEROHASH_ANDROID_OVERVIEW.md
 COMO_FUNCIONA_O_APP.md
 DO_NOT_COMMIT.md
+# Internal run-locally guide (Netskope CA, JDK, signing); kept off the public mirror.
+LOCALREADME.md
 
 # PR description scratch file (generated per-branch, never committed).
 PR_DESCRIPTION.md
