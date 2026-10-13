@@ -11,6 +11,7 @@ import com.zerohash.sdk.ZerohashSession
 import com.zerohash.sdk.Environment
 import com.zerohash.sdk.Theme
 import com.zerohash.sdk.internal.JwtValidator
+import com.zerohash.sdk.internal.AppRedirect
 import com.zerohash.sdk.ui.WebViewActivity
 
 /**
@@ -28,8 +29,13 @@ class ZerohashFundWithdrawalsSession internal constructor(
     private val environment: Environment,
     private val theme: Theme,
     private val allowList: ZerohashAllowList = ZerohashAllowList.DEFAULT,
-    private val callbacks: FundWithdrawalsCallbacks
+    private val callbacks: FundWithdrawalsCallbacks,
+    private val appRedirectUrl: String? = null
 ) {
+    init {
+        AppRedirect.requireValid(appRedirectUrl)
+    }
+
     private var session: ZerohashSession? = null
     private var hasPresented = false
 
@@ -84,6 +90,7 @@ class ZerohashFundWithdrawalsSession internal constructor(
             putExtra(WebViewActivity.EXTRA_JWT, jwt)
             putExtra(WebViewActivity.EXTRA_ENVIRONMENT, environment.toWebValue())
             putExtra(WebViewActivity.EXTRA_THEME, theme.toWebValue())
+            putExtra(WebViewActivity.EXTRA_APP_REDIRECT_URL, appRedirectUrl)
             putExtra(WebViewActivity.EXTRA_SESSION_ID, newSession.id)
             putExtra(WebViewActivity.EXTRA_WEB_HOST, environment.webHost)
             putStringArrayListExtra(

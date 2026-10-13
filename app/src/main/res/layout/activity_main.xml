@@ -215,6 +215,13 @@
                 </RadioGroup>
 
                 <CheckBox
+                    android:id="@+id/cbAppRedirect"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="Return to this app from wallet apps" />
+
+                <CheckBox
                     android:id="@+id/cbDevMode"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

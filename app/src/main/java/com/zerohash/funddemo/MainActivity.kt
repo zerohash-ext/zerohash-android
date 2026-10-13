@@ -41,6 +41,8 @@ class MainActivity : AppCompatActivity() {
         private const val TAG = "ZerohashDemo"
         private const val PREFS = "demo-prefs"
         private const val KEY_DEV_MODE = "devModeEnabled"
+        // Declared on the SDK's AppRedirectActivity in AndroidManifest.xml.
+        private const val DEMO_APP_REDIRECT_URL = "zhdemo://redirect"
 
         private const val STEP_ENVIRONMENT = 0
         private const val STEP_FLOW = 1
@@ -412,6 +414,7 @@ class MainActivity : AppCompatActivity() {
                 jwt = jwt,
                 environment = environment,
                 theme = theme,
+                appRedirectUrl = selectedAppRedirectUrl(),
                 callbacks = object : FundCallbacks {
                     override fun onClose() {
                         addLog("onClose")
@@ -469,6 +472,7 @@ class MainActivity : AppCompatActivity() {
                 jwt = jwt,
                 environment = environment,
                 theme = theme,
+                appRedirectUrl = selectedAppRedirectUrl(),
                 callbacks = object : CryptoDepositsCallbacks {
                     override fun onClose() {
                         addLog("onClose")
@@ -533,6 +537,7 @@ class MainActivity : AppCompatActivity() {
                 jwt = jwt,
                 environment = environment,
                 theme = theme,
+                appRedirectUrl = selectedAppRedirectUrl(),
                 callbacks = object : CryptoWithdrawalsCallbacks {
                     override fun onClose() {
                         addLog("onClose")
@@ -590,6 +595,7 @@ class MainActivity : AppCompatActivity() {
                 jwt = jwt,
                 environment = environment,
                 theme = theme,
+                appRedirectUrl = selectedAppRedirectUrl(),
                 callbacks = object : FundWithdrawalsCallbacks {
                     override fun onClose() {
                         addLog("Session closed")
@@ -639,6 +645,9 @@ class MainActivity : AppCompatActivity() {
         R.id.rbDev -> Environment.DEV
         else -> Environment.PRODUCTION
     }
+
+    private fun selectedAppRedirectUrl(): String? =
+        if (binding.cbAppRedirect.isChecked) DEMO_APP_REDIRECT_URL else null
 
     private fun selectedTheme(): Theme = when (binding.rgTheme.checkedRadioButtonId) {
         R.id.rbLight -> Theme.LIGHT

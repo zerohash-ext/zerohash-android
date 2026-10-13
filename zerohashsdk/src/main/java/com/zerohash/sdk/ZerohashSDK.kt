@@ -29,6 +29,11 @@ object ZerohashSDK {
      * @param theme UI theme (default: SYSTEM)
      * @param allowList Hosts the embedded WebView may navigate to / load from
      * @param callbacks Callbacks for session events
+     * @param appRedirectUrl Link that brings the user back to your app from another
+     *   app, such as a wallet after a WalletConnect approval: an https App Link or a
+     *   custom-scheme deep link. Declare it on [com.zerohash.sdk.ui.AppRedirectActivity].
+     *   Without it, a wallet opens a page that asks the user to return to the app.
+     * @throws IllegalArgumentException if [appRedirectUrl] is not an absolute URL
      * @return [ZerohashFundSession] instance ready to be presented
      *
      * Example usage:
@@ -52,14 +57,16 @@ object ZerohashSDK {
         environment: Environment = Environment.PRODUCTION,
         theme: Theme = Theme.SYSTEM,
         allowList: ZerohashAllowList = ZerohashAllowList.DEFAULT,
-        callbacks: FundCallbacks
+        callbacks: FundCallbacks,
+        appRedirectUrl: String? = null
     ): ZerohashFundSession {
         return ZerohashFundSession(
             jwt = jwt,
             environment = environment,
             theme = theme,
             allowList = allowList,
-            callbacks = callbacks
+            callbacks = callbacks,
+            appRedirectUrl = appRedirectUrl
         )
     }
 
@@ -79,6 +86,11 @@ object ZerohashSDK {
      * @param theme UI theme (default: SYSTEM)
      * @param allowList Hosts the embedded WebView may navigate to / load from
      * @param callbacks Callbacks for session events
+     * @param appRedirectUrl Link that brings the user back to your app from another
+     *   app, such as a wallet after a WalletConnect approval: an https App Link or a
+     *   custom-scheme deep link. Declare it on [com.zerohash.sdk.ui.AppRedirectActivity].
+     *   Without it, a wallet opens a page that asks the user to return to the app.
+     * @throws IllegalArgumentException if [appRedirectUrl] is not an absolute URL
      * @return [ZerohashCryptoDepositsSession] instance ready to be presented
      *
      * Example usage:
@@ -105,14 +117,16 @@ object ZerohashSDK {
         environment: Environment = Environment.PRODUCTION,
         theme: Theme = Theme.SYSTEM,
         allowList: ZerohashAllowList = ZerohashAllowList.DEFAULT,
-        callbacks: CryptoDepositsCallbacks
+        callbacks: CryptoDepositsCallbacks,
+        appRedirectUrl: String? = null
     ): ZerohashCryptoDepositsSession {
         return ZerohashCryptoDepositsSession(
             jwt = jwt,
             environment = environment,
             theme = theme,
             allowList = allowList,
-            callbacks = callbacks
+            callbacks = callbacks,
+            appRedirectUrl = appRedirectUrl
         )
     }
 
@@ -124,6 +138,11 @@ object ZerohashSDK {
      * @param theme UI theme (default: SYSTEM)
      * @param allowList Hosts the embedded WebView may navigate to / load from
      * @param callbacks Callbacks for session events
+     * @param appRedirectUrl Link that brings the user back to your app from another
+     *   app, such as a wallet after a WalletConnect approval: an https App Link or a
+     *   custom-scheme deep link. Declare it on [com.zerohash.sdk.ui.AppRedirectActivity].
+     *   Without it, a wallet opens a page that asks the user to return to the app.
+     * @throws IllegalArgumentException if [appRedirectUrl] is not an absolute URL
      * @return [ZerohashCryptoWithdrawalsSession] instance ready to be presented
      *
      * Example usage:
@@ -147,14 +166,16 @@ object ZerohashSDK {
         environment: Environment = Environment.PRODUCTION,
         theme: Theme = Theme.SYSTEM,
         allowList: ZerohashAllowList = ZerohashAllowList.DEFAULT,
-        callbacks: CryptoWithdrawalsCallbacks
+        callbacks: CryptoWithdrawalsCallbacks,
+        appRedirectUrl: String? = null
     ): ZerohashCryptoWithdrawalsSession {
         return ZerohashCryptoWithdrawalsSession(
             jwt = jwt,
             environment = environment,
             theme = theme,
             allowList = allowList,
-            callbacks = callbacks
+            callbacks = callbacks,
+            appRedirectUrl = appRedirectUrl
         )
     }
 
@@ -171,6 +192,11 @@ object ZerohashSDK {
      * @param theme UI theme (default: SYSTEM)
      * @param allowList Hosts the embedded WebView may navigate to / load from
      * @param callbacks Callbacks for session events
+     * @param appRedirectUrl Link that brings the user back to your app from another
+     *   app, such as a wallet after a WalletConnect approval: an https App Link or a
+     *   custom-scheme deep link. Declare it on [com.zerohash.sdk.ui.AppRedirectActivity].
+     *   Without it, a wallet opens a page that asks the user to return to the app.
+     * @throws IllegalArgumentException if [appRedirectUrl] is not an absolute URL
      * @return [ZerohashFundWithdrawalsSession] instance ready to be presented
      *
      * Example usage:
@@ -194,14 +220,16 @@ object ZerohashSDK {
         environment: Environment = Environment.PRODUCTION,
         theme: Theme = Theme.SYSTEM,
         allowList: ZerohashAllowList = ZerohashAllowList.DEFAULT,
-        callbacks: FundWithdrawalsCallbacks
+        callbacks: FundWithdrawalsCallbacks,
+        appRedirectUrl: String? = null
     ): ZerohashFundWithdrawalsSession {
         return ZerohashFundWithdrawalsSession(
             jwt = jwt,
             environment = environment,
             theme = theme,
             allowList = allowList,
-            callbacks = callbacks
+            callbacks = callbacks,
+            appRedirectUrl = appRedirectUrl
         )
     }
 }

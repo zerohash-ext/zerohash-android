@@ -43,7 +43,7 @@
         <!--
             Cross-process OAuth callback receiver.
 
-            This is the ONLY exported activity in the SDK. It receives the
+            This is the only activity the SDK exports itself. It receives the
             connectsdk-oauth://callback redirect dispatched by the system after
             Chrome Custom Tabs navigates to the custom scheme, and forwards the
             URI to the (non-exported) WebViewActivity in the same task.
@@ -76,6 +76,19 @@
                     android:host="callback" />
             </intent-filter>
         </activity>
+
+        <!--
+            Target of the host's `appRedirectUrl`, which other apps (such as
+            wallets) open to send the user back. Not exported here: the host app
+            exports it and adds an intent-filter for its own scheme or App Link
+            in its manifest (see the README). Holds no state and finishes at once.
+        -->
+        <activity
+            android:name="com.zerohash.sdk.ui.AppRedirectActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
     </application>
 
 </manifest>

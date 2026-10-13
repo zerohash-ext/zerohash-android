@@ -43,6 +43,7 @@ class WebViewActivity : AppCompatActivity(),
         const val EXTRA_JWT = "extra_jwt"
         const val EXTRA_ENVIRONMENT = "extra_environment"
         const val EXTRA_THEME = "extra_theme"
+        const val EXTRA_APP_REDIRECT_URL = "extra_app_redirect_url"
         const val EXTRA_SESSION_ID = "extra_session_id"
 
         /** Environment-specific web host (e.g. sdk.sandbox.connect.xyz). */
@@ -124,6 +125,7 @@ class WebViewActivity : AppCompatActivity(),
 
             val environment = intent.getStringExtra(EXTRA_ENVIRONMENT) ?: "production"
             val theme = intent.getStringExtra(EXTRA_THEME) ?: "auto"
+            val appRedirectUrl = intent.getStringExtra(EXTRA_APP_REDIRECT_URL)
             val sid = intent.getStringExtra(EXTRA_SESSION_ID) ?: run {
                 Log.e(TAG, "Session ID is required")
                 finish()
@@ -170,7 +172,7 @@ class WebViewActivity : AppCompatActivity(),
             }
             val webHost = intent.getStringExtra(EXTRA_WEB_HOST) ?: "sdk-cdn.zerohash.com"
 
-            setupUI(url, jwt, environment, theme, webHost)
+            setupUI(url, jwt, environment, theme, appRedirectUrl, webHost)
         } catch (e: Exception) {
             Log.e(TAG, "Error in onCreate", e)
             // Same reasoning as the unsupported-WebView bail above: if we got far
@@ -181,7 +183,14 @@ class WebViewActivity : AppCompatActivity(),
         }
     }
 
-    private fun setupUI(url: String, jwt: String, environment: String, theme: String, webHost: String) {
+    private fun setupUI(
+        url: String,
+        jwt: String,
+        environment: String,
+        theme: String,
+        appRedirectUrl: String?,
+        webHost: String
+    ) {
         try {
             container = FrameLayout(this)
             container.setBackgroundColor(
@@ -208,6 +217,7 @@ class WebViewActivity : AppCompatActivity(),
                 jwt = jwt,
                 environment = environment,
                 theme = theme,
+                appRedirectUrl = appRedirectUrl,
                 callbackHandler = callbackHandler!!,
                 allowedHost = webHost
             ).apply {

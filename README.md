@@ -350,6 +350,47 @@ otherwise — arrives on `onError`.
 | `cancel()`                                      | Closes the session if it is active                                                                                    |
 | `isActive(): Boolean`                           | Whether the session is currently active                                                                               |
 | `allowList: ZerohashAllowList`                  | Optional `configure*` param — hosts the WebView may navigate to / load from (defaults to `ZerohashAllowList.DEFAULT`) |
+| `appRedirectUrl: String?`                    | Optional `configure*` param — link that brings the user back to your app from another app, such as a wallet. See [App redirect URL](#app-redirect-url) |
+
+## App redirect URL
+
+Some flows hand the user to another app and back. For example, when the user pays from a self-custody wallet (MetaMask, Phantom, Trust, and others), the SDK opens the wallet app over WalletConnect, and after the user approves, the wallet opens a return link. `appRedirectUrl` is the link that brings the user back to your app.
+
+Without `appRedirectUrl`, the wallet opens a zerohash page in the browser that asks the user to go back to your app. With `appRedirectUrl`, the wallet opens your app directly, and the user continues the flow where they left it.
+
+```kotlin
+val session = ZerohashSDK.configureFund(
+    jwt = jwt,
+    callbacks = callbacks,
+    appRedirectUrl = "yourapp://zerohash-redirect"
+)
+```
+
+Declare the link on the SDK's `AppRedirectActivity` in your `AndroidManifest.xml`, not on one of your own activities:
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <activity
+            android:name="com.zerohash.sdk.ui.AppRedirectActivity"
+            android:exported="true"
+            tools:replace="android:exported">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="yourapp" android:host="zerohash-redirect" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+```
+
+- Use an App Link (`https://`, add `android:autoVerify="true"` and your host) or a custom URL scheme (`yourapp://`).
+- `AppRedirectActivity` shows nothing. It brings the SDK back to the front and finishes, so the user continues the flow where they left it.
+- Do not handle the link in one of your own activities. A `singleTask` activity, for example, clears the activities above it and closes the SDK.
+- The URL must be absolute. If it has no scheme, `configure*` throws `IllegalArgumentException`.
 
 ## Architecture
 

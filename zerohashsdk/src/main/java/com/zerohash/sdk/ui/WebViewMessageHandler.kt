@@ -39,6 +39,7 @@ internal class WebViewMessageHandler(
     private val jwt: String,
     private val environment: String,
     private val theme: String,
+    private val appRedirectUrl: String? = null,
     private val callbackHandler: CallbackHandler,
     /** Trusted host for this session — derived from [Environment.webHost]. */
     private val allowedHost: String = "sdk-cdn.zerohash.com"
@@ -134,8 +135,10 @@ internal class WebViewMessageHandler(
     }
 
     private fun handlePageReady() {
-        sendJWT()
+        // Config first: the web layer mounts the SDK on the JWT, and reads
+        // appRedirectUrl only once, at mount.
         sendConfig()
+        sendJWT()
     }
 
     private fun handleContentReady() {
@@ -255,6 +258,7 @@ internal class WebViewMessageHandler(
     private fun sendConfig() {
         val configMessage = JSONObject().apply {
             put("theme", theme)
+            appRedirectUrl?.let { put("appRedirectUrl", it) }
         }
         sendMessageToWeb("config", configMessage)
     }
