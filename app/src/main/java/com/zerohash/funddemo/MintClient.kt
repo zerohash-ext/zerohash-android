@@ -22,7 +22,7 @@ object MintClient {
     /** Base URL of the kyc-mock-platform-server that mints JWTs for [env]. */
     fun managerHost(env: Environment): String = when (env) {
         Environment.PRODUCTION -> "https://kyc-mock-platform-server.prod.0hash.com"
-        Environment.SANDBOX -> "https://kyc-mock-platform-server.entrypoint.cert.zerohash.com"
+        Environment.SANDBOX -> "https://kyc-mock-platform-server.cert.0hash.com"
         Environment.GATING -> "https://kyc-mock-platform-server.gating.0hash.com"
         Environment.DEV -> "https://kyc-mock-platform-server.dev.0hash.com"
     }
