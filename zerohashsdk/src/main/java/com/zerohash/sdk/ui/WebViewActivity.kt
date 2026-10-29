@@ -232,6 +232,7 @@ class WebViewActivity : AppCompatActivity(),
             ).apply {
                 delegate = this@WebViewActivity
             }
+            WalletSchemeStore.refreshIfStale(applicationContext)
 
             container.addView(webView)
 

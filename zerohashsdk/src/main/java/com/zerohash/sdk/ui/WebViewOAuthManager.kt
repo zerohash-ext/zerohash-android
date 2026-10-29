@@ -28,12 +28,7 @@ class WebViewOAuthManager(
         private const val TAG = "WebViewOAuthManager"
 
         /**
-         * Allowlist of URL schemes that may be opened in the external browser.
-         */
-        internal val ALLOWED_SCHEMES = setOf("https", "http")
-
-        /**
-         * Returns true if [url] has an allowed scheme.
+         * Returns true if [url] has a scheme [ExternalSchemePolicy] allows.
          *
          * Uses [java.net.URI] instead of [android.net.Uri] so this pure helper
          * can be called from JVM unit tests without Android framework stubs.
@@ -41,8 +36,7 @@ class WebViewOAuthManager(
         internal fun isAllowedUrl(url: String): Boolean {
             if (url.isBlank()) return false
             return try {
-                val scheme = java.net.URI(url).scheme?.lowercase() ?: return false
-                scheme in ALLOWED_SCHEMES
+                ExternalSchemePolicy.isAllowed(java.net.URI(url).scheme)
             } catch (e: Exception) {
                 false
             }
@@ -95,7 +89,7 @@ class WebViewOAuthManager(
     /**
      * Open URL in external browser.
      *
-     * Validates scheme against [ALLOWED_SCHEMES] before dispatching the intent.
+     * Validates scheme against [ExternalSchemePolicy] before dispatching the intent.
      */
     private fun openInExternalBrowser(url: String) {
         if (!isAllowedUrl(url)) {
