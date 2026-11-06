@@ -7,7 +7,6 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
-import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -43,6 +42,7 @@ import java.util.concurrent.ConcurrentHashMap
 internal class AutomationSession(
     private val activity: Activity,
     private val url: String,
+    private val platform: Platform,
     private val overlayOptions: OverlayOptions,
     private val showOverlay: Boolean,
 ) {
@@ -67,9 +67,8 @@ internal class AutomationSession(
     }
     private var didDismiss = false
 
-    /** id → awaiter for in-flight evaluateAsync calls (completed by [Bridge]). */
+    /** id → awaiter for in-flight evaluateAsync calls (completed by the result listener). */
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JSONObject?>>()
-    private var seq = 0
 
 
     /**
@@ -112,9 +111,11 @@ internal class AutomationSession(
     suspend fun load() = withContext(Dispatchers.Main) {
         val wv = WebView(activity)
         webView = wv
-        wv.applyAutomationDefaults()
+        wv.applyAutomationDefaults(platform.automationOrigins)
 
-        wv.addJavascriptInterface(Bridge(), BRIDGE)
+        wv.addAutomationResultListener(BRIDGE, platform.automationOrigins) { message ->
+            pending[message.callId]?.applyBridgeMessage(message)
+        }
         wv.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, u: String?) {
                 // Not initialLoad.complete(): with a challenge in front of the page
@@ -122,16 +123,16 @@ internal class AutomationSession(
                 beginReadinessGate()
             }
 
-            // Navigation host allowlist: this session drives the Coinbase withdrawal
-            // automation, so only Coinbase-owned origins may load in the main frame.
+            // Navigation host allowlist: this session drives the withdrawal automation,
+            // so only the platform's domains may load in the main frame.
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
-                blockOffCoinbaseNavigation(request?.url?.toString(), request?.isForMainFrame != false, TAG)
+                blockOffPlatformNavigation(request?.url?.toString(), request?.isForMainFrame != false, platform.navigationDomains, TAG)
 
             @Deprecated("Deprecated in Java")
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean =
-                blockOffCoinbaseNavigation(url, isMainFrame = true, TAG)
+                blockOffPlatformNavigation(url, isMainFrame = true, platform.navigationDomains, TAG)
         }
-        wv.webChromeClient = MediaCaptureChromeClient(activity)
+        wv.webChromeClient = MediaCaptureChromeClient(activity, platform.navigationDomains)
 
         val container = FrameLayout(activity)
         container.addView(wv, matchParent())
@@ -167,7 +168,7 @@ internal class AutomationSession(
         entryExpr: String,
         timeoutMs: Long,
     ): JSONObject? = withContext(Dispatchers.Main) {
-        val id = (++seq).toString()
+        val id = newCallId()
         val deferred = CompletableDeferred<JSONObject?>()
         pending[id] = deferred
 
@@ -175,10 +176,10 @@ internal class AutomationSession(
         val telemetryInstall = if (TelemetryRouter.collector != null) asset(TELEMETRY_INSTALL_ASSET) else ""
         val wrapped = buildPromiseWrapper(BRIDGE, id, prelude, argDecl, entryExpr, telemetryInstall)
 
-        // Refuse to run money-movement automation if the page has somehow landed off Coinbase,
-        // even if a navigation slipped past the WebViewClient allowlist.
-        val currentHost = hostOf(webView?.url)
-        if (!isTrustedCoinbaseHost(currentHost)) {
+        // Refuse to run money-movement automation if the page has somehow landed off the
+        // platform's origins, even if a navigation slipped past the WebViewClient allowlist.
+        // The result listener would drop the result there, so fail now, not after timeoutMs.
+        if (originOf(webView?.url) !in platform.automationOrigins) {
             pending.remove(id)
             throw PlatformException("withdraw/untrusted-host")
         }
@@ -246,30 +247,6 @@ internal class AutomationSession(
         }
         pending.values.forEach { it.cancel() }
         pending.clear()
-    }
-
-    private inner class Bridge {
-        /** Injected-realm drafts drained by the wrapper → the in-flight dispatch collector. */
-        @Suppress("UNUSED_PARAMETER")
-        @JavascriptInterface
-        fun onEvents(id: String, json: String?) {
-            TelemetryRouter.collector?.pushDraftsJson(json)
-        }
-
-        @JavascriptInterface
-        fun onResolve(id: String, json: String?) {
-            val d = pending[id] ?: return
-            try {
-                d.complete(decodeJsResult(json))
-            } catch (e: PlatformException) {
-                d.completeExceptionally(e)
-            }
-        }
-
-        @JavascriptInterface
-        fun onReject(id: String, message: String?) {
-            pending[id]?.completeExceptionally(PlatformException(message ?: "JS rejected"))
-        }
     }
 
     companion object {

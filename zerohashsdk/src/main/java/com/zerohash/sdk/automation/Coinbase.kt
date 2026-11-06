@@ -31,6 +31,10 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
         "https://appleid.apple.com",
     )
 
+    override val automationOrigins = setOf("https://www.coinbase.com")
+
+    override val navigationDomains = setOf("coinbase.com")
+
     private const val TAG = "ZHAutomation"
     private const val HOME_URL = "https://www.coinbase.com/home"
 
@@ -79,7 +83,7 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
      */
     override suspend fun status(activity: Activity): AuthStatusResult {
         Log.d(TAG, "status starting url=$HOME_URL")
-        val raw = PromiseWebViewRunner(activity).run(
+        val raw = PromiseWebViewRunner(activity, this).run(
             url = HOME_URL,
             scriptAsset = "automation/auth-status.js",
             timeoutMs = STATUS_TIMEOUT_MS,
@@ -214,7 +218,7 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
         val paramsJson = JSONObject().put("ops", JSONArray(BALANCE_OPS)).toString()
 
         suspend fun attempt(show: Boolean, forChallengeRetry: Boolean): JSONObject? =
-            VisibleWebViewRunner(activity).run(
+            VisibleWebViewRunner(activity, this).run(
                 url = HOME_URL,
                 scriptAsset = "automation/get-balance.js",
                 timeoutMs = if (forChallengeRetry) BALANCE_CHALLENGE_TIMEOUT_MS else BALANCE_TIMEOUT_MS,
@@ -295,7 +299,7 @@ internal object Coinbase : AuthFlow, BalanceFlow, DepositFlow, WithdrawFlow {
         showOverlay: Boolean,
     ): JSONObject {
         Log.d(TAG, "getDepositAddress starting url=$RECEIVE_URL")
-        val raw = VisibleWebViewRunner(activity).run(
+        val raw = VisibleWebViewRunner(activity, this).run(
             url = RECEIVE_URL,
             scriptAsset = "automation/get-deposit-address.js",
             timeoutMs = DEPOSIT_ADDRESS_TIMEOUT_MS,

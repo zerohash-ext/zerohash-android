@@ -23,15 +23,18 @@ import java.util.concurrent.atomic.AtomicInteger
  * page asks for it — a video-only ID/selfie check never prompts for the mic.
  * iOS parity: `AutomationSessionViewController.requestMediaCapturePermissionFor`.
  */
-internal class MediaCaptureChromeClient(private val activity: Activity) : WebChromeClient() {
+internal class MediaCaptureChromeClient(
+    private val activity: Activity,
+    private val navigationDomains: Set<String>,
+) : WebChromeClient() {
 
     override fun onPermissionRequest(request: PermissionRequest) {
         val origin = request.origin
         // The ID/liveness capture runs in the provider's cross-origin iframe
-        // (sdk.onfido.com), so accept the exchange host AND the liveness provider —
-        // not just the exchange. The main frame is locked to Coinbase elsewhere.
+        // (sdk.onfido.com), so accept the platform's domains AND the liveness
+        // provider. The main frame is locked to the platform's domains elsewhere.
         val trusted = origin != null && origin.scheme == "https" &&
-            isTrustedMediaCaptureHost(origin.host)
+            isTrustedMediaCaptureHost(origin.host, navigationDomains)
         val wantsVideo = request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
         val wantsAudio = request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
         // Deny only when it wants neither track — a later audio-only request (mic

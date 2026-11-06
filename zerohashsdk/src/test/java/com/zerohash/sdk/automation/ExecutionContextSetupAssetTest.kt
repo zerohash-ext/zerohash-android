@@ -12,6 +12,8 @@ class ExecutionContextSetupAssetTest {
         File("src/main/assets/automation/setup-execution-context.js").readText()
     private val webViewKt: String =
         File("src/main/java/com/zerohash/sdk/automation/AutomationWebView.kt").readText()
+    private val coinbaseKt: String =
+        File("src/main/java/com/zerohash/sdk/automation/Coinbase.kt").readText()
 
     /** Cuts at the first `//`, truncating URLs, so origin checks use raw source. */
     private fun code(src: String): String =
@@ -43,11 +45,11 @@ class ExecutionContextSetupAssetTest {
     @Test
     fun isInstalledFromTheSingleWebViewChokePoint() {
         val body = code(webViewKt)
-            .substringAfter("fun WebView.applyAutomationDefaults()")
+            .substringAfter("fun WebView.applyAutomationDefaults(")
             .substringBefore("\n}")
         assertTrue(
-            "applyAutomationDefaults must call setupExecutionContext()",
-            body.contains("setupExecutionContext()"),
+            "applyAutomationDefaults must call setupExecutionContext with the platform origins",
+            body.contains("setupExecutionContext(allowedOrigins)"),
         )
     }
 
@@ -72,10 +74,8 @@ class ExecutionContextSetupAssetTest {
     fun isScopedToTheExactOriginItWasVerifiedOn() {
         assertTrue(
             "the origin must be exactly https://www.coinbase.com",
-            webViewKt.contains(
-                """private const val COINBASE_WWW_ORIGIN = "https://www.coinbase.com""""
-            ),
+            coinbaseKt.contains("""override val automationOrigins = setOf("https://www.coinbase.com")"""),
         )
-        assertTrue("the origin must not be a wildcard", !webViewKt.contains("*.coinbase.com"))
+        assertTrue("the origin must not be a wildcard", !coinbaseKt.contains("*.coinbase.com"))
     }
 }

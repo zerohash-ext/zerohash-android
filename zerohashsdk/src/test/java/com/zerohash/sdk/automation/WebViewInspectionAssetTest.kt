@@ -16,7 +16,7 @@ class WebViewInspectionAssetTest {
         src.lineSequence().map { it.substringBefore("//") }.joinToString("\n")
 
     private fun defaults(): String =
-        code(webView).substringAfter("fun WebView.applyAutomationDefaults()")
+        code(webView).substringAfter("fun WebView.applyAutomationDefaults(")
             .substringBefore("\n}")
 
     @Test

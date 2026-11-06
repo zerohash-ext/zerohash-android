@@ -11,8 +11,10 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import kotlinx.coroutines.CompletableDeferred
 import org.json.JSONObject
 import java.net.URI
+import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -54,10 +56,10 @@ internal const val AUTOMATION_USER_AGENT =
  * opts the process-wide [CookieManager] into first- and third-party cookies, which
  * is what ties login → status → balance together across the runners. Pins a real
  * Chrome-on-Android [AUTOMATION_USER_AGENT] so Coinbase doesn't flag the default
- * embedded-WebView UA (AUTH-3445).
+ * embedded-WebView UA (AUTH-3445). The setup script runs only on [allowedOrigins].
  */
 @SuppressLint("SetJavaScriptEnabled")
-internal fun WebView.applyAutomationDefaults() {
+internal fun WebView.applyAutomationDefaults(allowedOrigins: Set<String>) {
     settings.apply {
         javaScriptEnabled = true
         domStorageEnabled = true
@@ -74,7 +76,7 @@ internal fun WebView.applyAutomationDefaults() {
     }
     CookieManager.getInstance().setAcceptCookie(true)
     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-    setupExecutionContext()
+    setupExecutionContext(allowedOrigins)
     enableInspectionWhenDebuggable()
 }
 
@@ -93,9 +95,6 @@ internal fun WebView.enableInspectionWhenDebuggable() {
     WebView.setWebContentsDebuggingEnabled(true)
 }
 
-/** Exact origin, not a wildcard: this grants script injection. */
-private const val COINBASE_WWW_ORIGIN = "https://www.coinbase.com"
-
 private const val SETUP_SCRIPT_ASSET = "automation/setup-execution-context.js"
 
 /**
@@ -108,9 +107,10 @@ private const val SETUP_SCRIPT_ASSET = "automation/setup-execution-context.js"
  * can be dropped because the new document's JS context may not exist yet.
  *
  * Needs WebView 83+, and minSdk here is 21, so on an un-updated WebView none of
- * the setup runs.
+ * the setup runs. [allowedOrigins] must be exact origins, not wildcards: this
+ * grants script injection.
  */
-private fun WebView.setupExecutionContext() {
+private fun WebView.setupExecutionContext(allowedOrigins: Set<String>) {
     if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
         Log.i(TAG_WV, "DOCUMENT_START_SCRIPT unsupported; execution context not set up")
         return
@@ -118,17 +118,118 @@ private fun WebView.setupExecutionContext() {
     val script = runCatching { context.readAutomationAsset(SETUP_SCRIPT_ASSET) }
         .getOrElse { Log.e(TAG_WV, "missing $SETUP_SCRIPT_ASSET", it); return }
     runCatching {
-        WebViewCompat.addDocumentStartJavaScript(this, script, setOf(COINBASE_WWW_ORIGIN))
+        WebViewCompat.addDocumentStartJavaScript(this, script, allowedOrigins)
     }.onFailure { Log.e(TAG_WV, "could not set up the execution context", it) }
+}
+
+private val callIdRandom = SecureRandom()
+
+/**
+ * A new 128-bit random call id, as 32 hex characters. A script that did not start
+ * the call cannot guess it, so it cannot complete the call.
+ */
+internal fun newCallId(): String {
+    val bytes = ByteArray(16)
+    callIdRandom.nextBytes(bytes)
+    return bytes.joinToString("") { "%02x".format(it) }
+}
+
+/** `scheme://host[:port]` of [url], or "" when it's null/unparseable. */
+internal fun originOf(url: String?): String {
+    val uri = runCatching { URI(url) }.getOrNull() ?: return ""
+    val scheme = uri.scheme?.lowercase() ?: return ""
+    val host = uri.host?.lowercase() ?: return ""
+    if (uri.port == -1) {
+        return "$scheme://$host"
+    }
+    return "$scheme://$host:${uri.port}"
+}
+
+internal enum class BridgeMessageKind { RESOLVE, REJECT, EVENTS }
+
+/**
+ * One message the [buildPromiseWrapper] wrapper posts. [payload] is the JSON
+ * result for [BridgeMessageKind.RESOLVE], the error message for
+ * [BridgeMessageKind.REJECT], and the telemetry drafts JSON for
+ * [BridgeMessageKind.EVENTS].
+ */
+internal data class BridgeMessage(
+    val callId: String,
+    val kind: BridgeMessageKind,
+    val payload: String?,
+)
+
+/**
+ * Parse a posted bridge message, or null when it is not valid JSON, has no id,
+ * or has an unknown kind.
+ */
+internal fun parseBridgeMessage(raw: String?): BridgeMessage? {
+    val json = raw?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return null
+    val callId = json.optString("id").ifEmpty { return null }
+    val kind = when (json.optString("kind")) {
+        "resolve" -> BridgeMessageKind.RESOLVE
+        "reject" -> BridgeMessageKind.REJECT
+        "events" -> BridgeMessageKind.EVENTS
+        else -> return null
+    }
+    if (json.isNull("payload")) {
+        return BridgeMessage(callId, kind, null)
+    }
+    return BridgeMessage(callId, kind, json.optString("payload"))
+}
+
+/**
+ * Expose [objectName] to the main frame of [allowedOrigins] only, and deliver each
+ * parsed message to [onMessage] on the UI thread.
+ *
+ * `addJavascriptInterface` injects into every frame, so a third-party iframe could
+ * post a result. A web message listener exists only in frames on [allowedOrigins],
+ * and the main-frame check also drops a same-origin iframe. Call it before
+ * `loadUrl`: only documents created after the call get the object.
+ */
+internal fun WebView.addAutomationResultListener(
+    objectName: String,
+    allowedOrigins: Set<String>,
+    onMessage: (BridgeMessage) -> Unit,
+) {
+    if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+        WebViewCompat.addWebMessageListener(this, objectName, allowedOrigins) { _, message, _, isMainFrame, _ ->
+            if (!isMainFrame) return@addWebMessageListener
+            parseBridgeMessage(message.data)?.let(onMessage)
+        }
+    } else {
+        throw PlatformException("web message listener unsupported")
+    }
+}
+
+/** Push telemetry drafts, or settle this call with the result in [message]. */
+internal fun CompletableDeferred<JSONObject?>.applyBridgeMessage(message: BridgeMessage) {
+    when (message.kind) {
+        BridgeMessageKind.EVENTS -> TelemetryRouter.collector?.pushDraftsJson(message.payload)
+        BridgeMessageKind.RESOLVE ->
+            try {
+                complete(decodeJsResult(message.payload))
+            } catch (e: PlatformException) {
+                completeExceptionally(e)
+            }
+        BridgeMessageKind.REJECT -> {
+            if (message.payload == null) {
+                completeExceptionally(PlatformException("JS rejected"))
+            } else {
+                completeExceptionally(PlatformException(message.payload))
+            }
+        }
+    }
 }
 
 /**
  * Wrap an IIFE-expression [rawExpr] so the Promise it resolves to is delivered
- * back to native over the [bridge] `@JavascriptInterface` (correlated by [callId]).
+ * back to native as a [BridgeMessage] posted to [bridge] (correlated by [callId]).
+ * See [addAutomationResultListener].
  *
  * Android's `evaluateJavascript` does NOT await Promises (a Promise stringifies to
- * `{}`), so the injected wrapper calls `bridge.onResolve/onReject` when the Promise
- * settles. [prelude] (trusted setup that installs window globals) is injected
+ * `{}`), so the injected wrapper posts a `resolve` or `reject` message when the
+ * Promise settles. [prelude] (trusted setup that installs window globals) is injected
  * first, then [argDecl] (e.g. `var params = …;`) binds an in-scope local the
  * script reads; all three share the wrapper's function scope.
  *
@@ -164,22 +265,25 @@ internal fun buildPromiseWrapper(
     val on = telemetryInstall.isNotEmpty()
     val install = if (on) "$telemetryInstall\nwindow.__zhTelemetry.enable(true);" else ""
     val drain = if (on) {
-        """try { if (window.__zhTelemetry && $bridge.onEvents) $bridge.onEvents("$callId", JSON.stringify(window.__zhTelemetry.drain())); } catch (e) {}"""
+        """try { if (window.__zhTelemetry) __zhPost("events", JSON.stringify(window.__zhTelemetry.drain())); } catch (e) {}"""
     } else {
         ""
     }
     return """
         (function () {
+          var __zhPost = function (kind, payload) {
+            $bridge.postMessage(JSON.stringify({ id: "$callId", kind: kind, payload: payload }));
+          };
           try {
             $install
             $prelude
             $argDecl
             Promise.resolve(($expr)).then(
-              function (r) { $drain $bridge.onResolve("$callId", JSON.stringify(r === undefined ? null : r)); },
-              function (e) { $drain $bridge.onReject("$callId", String((e && e.message) || e)); }
+              function (r) { $drain __zhPost("resolve", JSON.stringify(r === undefined ? null : r)); },
+              function (e) { $drain __zhPost("reject", String((e && e.message) || e)); }
             );
           } catch (e) {
-            $bridge.onReject("$callId", String((e && e.message) || e));
+            __zhPost("reject", String((e && e.message) || e));
           }
         })();
     """.trimIndent()
@@ -224,33 +328,28 @@ internal fun hostOf(url: String?): String =
     runCatching { URI(url).host ?: "" }.getOrDefault("")
 
 /**
- * Navigation host allowlist for the Coinbase automation WebViews. These carry the
- * user's live Coinbase session and inject scripts that type the withdrawal
- * destination address, relay the 2FA OTP, and click "Send now", so they must only
- * ever load Coinbase-owned origins in the main frame — mirroring iOS
- * `CoinbaseHostPolicy` and the navigation-trust controls elsewhere in the SDK.
+ * Navigation host allowlist for the automation WebViews. These carry the user's
+ * live platform session and inject scripts that type the withdrawal destination
+ * address, relay the 2FA OTP, and click "Send now", so they must only ever load
+ * the platform's domains in the main frame — mirroring iOS `CoinbaseHostPolicy`
+ * and the navigation-trust controls elsewhere in the SDK.
  *
- * True when [host] is `coinbase.com` or a subdomain of it (covers `www.`, `login.`).
+ * True when [host] is one of [trustedDomains] or a subdomain of one.
  */
-internal fun isTrustedCoinbaseHost(host: String?): Boolean {
-    val h = host?.lowercase() ?: return false
-    return h == "coinbase.com" || h.endsWith(".coinbase.com")
+internal fun isTrustedHost(host: String?, trustedDomains: Set<String>): Boolean {
+    if (host == null) {
+        return false
+    }
+    val normalizedHost = host.lowercase()
+    return trustedDomains.any { domain -> normalizedHost == domain || normalizedHost.endsWith(".$domain") }
 }
-
-/**
- * True when [host] belongs to a supported exchange. The shared origin gate for
- * the automation WebViews. Only Coinbase today — add exchanges here as an OR so
- * every gate stays in sync.
- */
-internal fun isTrustedExchangeHost(host: String?): Boolean =
-    isTrustedCoinbaseHost(host)
 
 /**
  * True when [host] is the identity/liveness provider Coinbase embeds for the
  * withdraw ID check (Onfido). The liveness selfie/camera runs in a cross-origin
  * `sdk.onfido.com` iframe, so its getUserMedia request arrives with the Onfido
- * origin — not Coinbase's. Kept SEPARATE from [isTrustedCoinbaseHost] on purpose:
- * navigation and script injection stay Coinbase-only; this host is trusted for
+ * origin — not Coinbase's. Kept SEPARATE from [isTrustedHost] on purpose:
+ * navigation and script injection stay platform-only; this host is trusted for
  * camera/mic capture ALONE (see [isTrustedMediaCaptureHost]).
  */
 internal fun isTrustedLivenessProviderHost(host: String?): Boolean {
@@ -260,26 +359,32 @@ internal fun isTrustedLivenessProviderHost(host: String?): Boolean {
 
 /**
  * Origin gate for camera/mic capture in the automation WebView. Broader than
- * [isTrustedExchangeHost] because the ID/liveness step captures inside the
- * provider's iframe ([isTrustedLivenessProviderHost]) rather than Coinbase's own
- * frame. Safe: the main frame is locked to Coinbase (blockOffCoinbaseNavigation +
- * the evaluateAsync host check), so any embedded capture iframe is one Coinbase
- * itself chose to load.
+ * [isTrustedHost] because the ID/liveness step captures inside the provider's
+ * iframe ([isTrustedLivenessProviderHost]) rather than the platform's own frame.
+ * Safe: the main frame is locked to [navigationDomains] ([blockOffPlatformNavigation]
+ * + the evaluateAsync origin check), so any embedded capture iframe is one the
+ * platform itself chose to load.
  */
-internal fun isTrustedMediaCaptureHost(host: String?): Boolean =
-    isTrustedExchangeHost(host) || isTrustedLivenessProviderHost(host)
+internal fun isTrustedMediaCaptureHost(host: String?, navigationDomains: Set<String>): Boolean =
+    isTrustedHost(host, navigationDomains) || isTrustedLivenessProviderHost(host)
 
 /**
  * WebViewClient decision for whether to BLOCK a navigation to [url]: true means
- * "handled — don't load" (a main-frame navigation to a non-Coinbase host).
- * Sub-frames ([isMainFrame] false, e.g. the Cloudflare Turnstile widget) are
- * third-party by design and never blocked. [tag] is the caller's log tag.
+ * "handled — don't load" (a main-frame navigation to a host outside
+ * [navigationDomains]). Sub-frames ([isMainFrame] false, e.g. the Cloudflare
+ * Turnstile widget) are third-party by design and never blocked. [tag] is the
+ * caller's log tag.
  */
-internal fun blockOffCoinbaseNavigation(url: String?, isMainFrame: Boolean, tag: String): Boolean {
+internal fun blockOffPlatformNavigation(
+    url: String?,
+    isMainFrame: Boolean,
+    navigationDomains: Set<String>,
+    tag: String,
+): Boolean {
     if (!isMainFrame) return false
     val host = hostOf(url)
-    if (isTrustedCoinbaseHost(host)) return false
-    Log.e(tag, "blocked off-Coinbase navigation host=$host")
+    if (isTrustedHost(host, navigationDomains)) return false
+    Log.e(tag, "blocked off-platform navigation host=$host")
     return true
 }
 

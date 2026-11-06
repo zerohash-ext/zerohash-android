@@ -7,7 +7,6 @@ import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
-import android.webkit.JavascriptInterface
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -32,9 +31,15 @@ import org.json.JSONObject
  *
  * The Promise bridge is the same as [PromiseWebViewRunner]'s: Android's
  * `evaluateJavascript` doesn't await Promises, so an injected wrapper resolves
- * back to native via a `@JavascriptInterface`.
+ * back to native via [addAutomationResultListener].
  */
-internal class VisibleWebViewRunner(private val activity: Activity) {
+internal class VisibleWebViewRunner(
+    private val activity: Activity,
+    private val platform: Platform,
+) {
+
+    /** Single run per instance, so one id for each instance. */
+    private val callId = newCallId()
 
     private var root: FrameLayout? = null
     private var webView: WebView? = null
@@ -88,20 +93,22 @@ internal class VisibleWebViewRunner(private val activity: Activity) {
     ) {
         val wv = WebView(activity)
         webView = wv
-        wv.applyAutomationDefaults()
+        wv.applyAutomationDefaults(platform.automationOrigins)
 
-        wv.addJavascriptInterface(PromiseBridge(), BRIDGE)
+        wv.addAutomationResultListener(BRIDGE, platform.automationOrigins) { message ->
+            if (message.callId == callId) result.applyBridgeMessage(message)
+        }
         wv.webViewClient = object : WebViewClient() {
-            // Navigation host allowlist: this WebView carries the live Coinbase
+            // Navigation host allowlist: this WebView carries the live platform
             // session and runs the balance / deposit-address automation, so only
-            // Coinbase-owned origins may load in the main frame. Sub-frames (e.g. the
+            // the platform's domains may load in the main frame. Sub-frames (e.g. the
             // Cloudflare Turnstile widget) are left alone.
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
-                blockOffCoinbaseNavigation(request?.url?.toString(), request?.isForMainFrame != false, TAG)
+                blockOffPlatformNavigation(request?.url?.toString(), request?.isForMainFrame != false, platform.navigationDomains, TAG)
 
             @Deprecated("Deprecated in Java")
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean =
-                blockOffCoinbaseNavigation(url, isMainFrame = true, TAG)
+                blockOffPlatformNavigation(url, isMainFrame = true, platform.navigationDomains, TAG)
 
             override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                 if (result.isCompleted || started) return
@@ -214,33 +221,8 @@ internal class VisibleWebViewRunner(private val activity: Activity) {
     private fun evaluate(view: WebView?, script: String, prelude: String, paramsJson: String?) {
         val paramsDecl = if (paramsJson != null) "var params = $paramsJson;" else ""
         val telemetryInstall = if (TelemetryRouter.collector != null) activity.readAutomationAsset(TELEMETRY_INSTALL_ASSET) else ""
-        val wrapped = buildPromiseWrapper(BRIDGE, CALL_ID, prelude, paramsDecl, script, telemetryInstall)
+        val wrapped = buildPromiseWrapper(BRIDGE, callId, prelude, paramsDecl, script, telemetryInstall)
         view?.evaluateJavascript(wrapped, null)
-    }
-
-    private inner class PromiseBridge {
-        /** Injected-realm drafts drained by the wrapper → the in-flight dispatch collector. */
-        @JavascriptInterface
-        fun onEvents(id: String, json: String?) {
-            if (id != CALL_ID) return
-            TelemetryRouter.collector?.pushDraftsJson(json)
-        }
-
-        @JavascriptInterface
-        fun onResolve(id: String, json: String?) {
-            if (id != CALL_ID) return
-            try {
-                result.complete(decodeJsResult(json))
-            } catch (e: PlatformException) {
-                result.completeExceptionally(e)
-            }
-        }
-
-        @JavascriptInterface
-        fun onReject(id: String, message: String?) {
-            if (id != CALL_ID) return
-            result.completeExceptionally(PlatformException(message ?: "JS rejected"))
-        }
     }
 
     private fun teardown() {
@@ -264,7 +246,6 @@ internal class VisibleWebViewRunner(private val activity: Activity) {
     companion object {
         private const val TAG = "ZHAutomation"
         private const val BRIDGE = "__zhVisible"
-        private const val CALL_ID = "1"
         private const val CHALLENGE_POLL_MS = 500L
 
         /** Aliased from [ChallengeGate] so this runner and the withdraw gate cannot

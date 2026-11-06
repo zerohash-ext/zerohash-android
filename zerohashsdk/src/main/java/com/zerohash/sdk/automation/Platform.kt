@@ -25,6 +25,21 @@ internal interface Platform {
      * Android CookieManager. See [AutomationCookies.clearForHosts].
      */
     val cookieHosts: List<String> get() = emptyList()
+
+    /**
+     * Exact origins (scheme + host, no path, no wildcard) that may post an
+     * automation result. The result listener exists only in main-frame documents
+     * on these origins, so a third-party iframe cannot complete a call. No default:
+     * each platform must declare its own.
+     */
+    val automationOrigins: Set<String>
+
+    /**
+     * Registrable domains (no scheme, no wildcard) that the automation WebView may
+     * load in the main frame. A host matches when it is the domain or a subdomain of
+     * it. No default: each platform must declare its own.
+     */
+    val navigationDomains: Set<String>
 }
 
 /** auth.status / auth.login. */

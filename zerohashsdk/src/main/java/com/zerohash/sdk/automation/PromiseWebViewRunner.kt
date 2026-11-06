@@ -4,7 +4,6 @@ import android.app.Activity
 import android.os.Build
 import android.util.Log
 import android.view.ViewGroup
-import android.webkit.JavascriptInterface
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -27,8 +26,9 @@ import org.json.JSONObject
  *   iOS `WKWebView.callAsyncJavaScript` natively awaits a returned Promise.
  *   Android `WebView.evaluateJavascript` does NOT — it returns the synchronous
  *   value (a Promise stringifies to `{}`). So we bridge the resolution back to
- *   native ourselves: a `@JavascriptInterface` (`__zhNative`) that the injected
- *   wrapper calls when the Promise settles, completing a [CompletableDeferred].
+ *   native ourselves: a web message listener (`__zhNative`, see
+ *   [addAutomationResultListener]) that the injected wrapper posts to when the
+ *   Promise settles, completing a [CompletableDeferred].
  *
  * One runner instance == one run. Not reusable (matches the transient-webview
  * model; we can pool later if cold-start churn shows up — see iOS
@@ -39,17 +39,20 @@ import org.json.JSONObject
  * reliably run a real page). Upgrade path if Coinbase's SPA refuses to behave
  * at 1x1: a dedicated full-screen overlay Activity, like iOS's visible runner.
  */
-internal class PromiseWebViewRunner(private val activity: Activity) {
+internal class PromiseWebViewRunner(
+    private val activity: Activity,
+    private val platform: Platform,
+) {
 
     companion object {
         private const val TAG = "ZHAutomation"
 
-        /** Name the injected wrapper calls back on. */
+        /** Name the injected wrapper posts to. */
         private const val BRIDGE = "__zhNative"
-
-        /** Single run per instance, so a constant correlation id is fine. */
-        private const val CALL_ID = "1"
     }
+
+    /** Single run per instance, so one id for each instance. */
+    private val callId = newCallId()
 
     private var webView: WebView? = null
 
@@ -124,20 +127,22 @@ internal class PromiseWebViewRunner(private val activity: Activity) {
         val wv = WebView(activity)
         webView = wv
 
-        wv.applyAutomationDefaults()
+        wv.applyAutomationDefaults(platform.automationOrigins)
 
-        wv.addJavascriptInterface(PromiseBridge(), BRIDGE)
+        wv.addAutomationResultListener(BRIDGE, platform.automationOrigins) { message ->
+            if (message.callId == callId) result.applyBridgeMessage(message)
+        }
 
         wv.webViewClient = object : WebViewClient() {
             // Navigation host allowlist: this offscreen WebView carries the live
-            // Coinbase session, so only Coinbase-owned origins may load in the main
+            // platform session, so only the platform's domains may load in the main
             // frame. Sub-frames (e.g. the Cloudflare Turnstile widget) are left alone.
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
-                blockOffCoinbaseNavigation(request?.url?.toString(), request?.isForMainFrame != false, TAG)
+                blockOffPlatformNavigation(request?.url?.toString(), request?.isForMainFrame != false, platform.navigationDomains, TAG)
 
             @Deprecated("Deprecated in Java")
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean =
-                blockOffCoinbaseNavigation(url, isMainFrame = true, TAG)
+                blockOffPlatformNavigation(url, isMainFrame = true, platform.navigationDomains, TAG)
 
             override fun doUpdateVisitedHistory(view: WebView?, historyUrl: String?, isReload: Boolean) {
                 // Settle on NAVIGATION for terminal (Answer) URLs, not just
@@ -230,35 +235,8 @@ internal class PromiseWebViewRunner(private val activity: Activity) {
     private fun evaluate(view: WebView?, script: String, prelude: String, paramsJson: String?) {
         val paramsDecl = if (paramsJson != null) "var params = $paramsJson;" else ""
         val telemetryInstall = if (TelemetryRouter.collector != null) activity.readAutomationAsset(TELEMETRY_INSTALL_ASSET) else ""
-        val wrapped = buildPromiseWrapper(BRIDGE, CALL_ID, prelude, paramsDecl, script, telemetryInstall)
+        val wrapped = buildPromiseWrapper(BRIDGE, callId, prelude, paramsDecl, script, telemetryInstall)
         view?.evaluateJavascript(wrapped, null)
-    }
-
-    private inner class PromiseBridge {
-        /** Injected-realm drafts drained by the wrapper → the in-flight dispatch collector. */
-        @JavascriptInterface
-        fun onEvents(id: String, json: String?) {
-            if (id != CALL_ID) return
-            TelemetryRouter.collector?.pushDraftsJson(json)
-        }
-
-        @JavascriptInterface
-        fun onResolve(id: String, json: String?) {
-            if (id != CALL_ID) return
-            // Arrives on the JavaBridge thread; CompletableDeferred is safe to
-            // complete from any thread.
-            try {
-                result.complete(decodeJsResult(json))
-            } catch (e: PlatformException) {
-                result.completeExceptionally(e)
-            }
-        }
-
-        @JavascriptInterface
-        fun onReject(id: String, message: String?) {
-            if (id != CALL_ID) return
-            result.completeExceptionally(PlatformException(message ?: "JS rejected"))
-        }
     }
 
     private fun teardown() {

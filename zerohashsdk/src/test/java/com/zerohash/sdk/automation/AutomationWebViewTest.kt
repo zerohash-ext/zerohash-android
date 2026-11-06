@@ -1,21 +1,63 @@
 package com.zerohash.sdk.automation
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
 /**
- * Unit tests for the Promise-bridge decode path ([decodeJsResult]): the helper
- * that turns the JSON string a settled JS Promise hands back over the
- * `@JavascriptInterface` into a [org.json.JSONObject] (or null / an error). This
- * is the shared seam every automation runner funnels its result through, so a
- * regression here breaks every scraping op — one of the pieces AUTH-3443 flags.
+ * Unit tests for the Promise-bridge helpers: the call id, the origin check input,
+ * the posted-message parser, and [decodeJsResult], which turns the JSON string a
+ * settled JS Promise posts back into a [org.json.JSONObject] (or null / an error).
+ * Every automation runner funnels its result through these, so a regression here
+ * breaks every scraping op.
  *
  * Pure JVM (org.json test dep), no device.
  */
 class AutomationWebViewTest {
+
+    @Test
+    fun newCallId_has128BitsAsHex() {
+        assertTrue(newCallId().matches(Regex("[0-9a-f]{32}")))
+    }
+
+    @Test
+    fun newCallId_differsOnEachCall() {
+        assertNotEquals(newCallId(), newCallId())
+    }
+
+    @Test
+    fun parseBridgeMessage_readsResolve() {
+        val message = parseBridgeMessage("""{"id":"abc","kind":"resolve","payload":"{\"ok\":true}"}""")
+        assertEquals(BridgeMessage("abc", BridgeMessageKind.RESOLVE, """{"ok":true}"""), message)
+    }
+
+    @Test
+    fun parseBridgeMessage_rejectsMalformedMessages() {
+        assertNull(parseBridgeMessage(null))
+        assertNull(parseBridgeMessage("not json"))
+        assertNull(parseBridgeMessage("""{"kind":"resolve","payload":"null"}"""))
+        assertNull(parseBridgeMessage("""{"id":"abc","kind":"done","payload":"null"}"""))
+    }
+
+    @Test
+    fun originOf_dropsPathAndQuery() {
+        assertEquals("https://www.coinbase.com", originOf("https://www.coinbase.com/send?x=1"))
+    }
+
+    @Test
+    fun originOf_keepsExplicitPort() {
+        assertEquals("https://www.coinbase.com:8443", originOf("https://www.coinbase.com:8443/home"))
+    }
+
+    @Test
+    fun originOf_isEmptyForNullOrUnparseableUrl() {
+        assertEquals("", originOf(null))
+        assertEquals("", originOf("https://exa mple.com"))
+        assertEquals("", originOf("about:blank"))
+    }
 
     @Test
     fun decodesJsonObject() {

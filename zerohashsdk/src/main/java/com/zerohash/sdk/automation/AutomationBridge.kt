@@ -273,7 +273,7 @@ internal class AutomationBridge(
         }
         withdrawStarting = true
         try {
-            val session = AutomationSession(activity, platform.withdrawUrl, overlay, showOverlay)
+            val session = AutomationSession(activity, platform.withdrawUrl, platform, overlay, showOverlay)
             val state = try {
                 // Inside the guarded try because load() can now fail on an unsolved
                 // challenge; outside, that would leave the WebView over the host app.

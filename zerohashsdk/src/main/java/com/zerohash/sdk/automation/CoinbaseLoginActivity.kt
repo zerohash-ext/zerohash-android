@@ -70,7 +70,7 @@ internal class CoinbaseLoginActivity : AppCompatActivity() {
         wv.padForSystemBarsAndKeyboard(TAG)
         configureStatusBar()
 
-        wv.applyAutomationDefaults()
+        wv.applyAutomationDefaults(Coinbase.automationOrigins)
         // Popup support for provider social login (Apple): Coinbase opens Apple
         // via window.open on appleid.apple.com and reads the result back from
         // window.opener. onCreateWindow (below) hosts that popup in a child

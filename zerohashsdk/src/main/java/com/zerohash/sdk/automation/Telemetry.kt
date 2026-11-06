@@ -18,7 +18,7 @@ internal object TelemetryConfig {
 }
 
 /** Holds the collector for the current operation. The bridge sets it; vehicles write
- *  drafts to it via onEvents. One operation runs at a time. */
+ *  drafts to it via `events` bridge messages. One operation runs at a time. */
 internal object TelemetryRouter {
     @Volatile
     var collector: TelemetryCollector? = null
@@ -111,7 +111,7 @@ internal object TelemetryStamper {
     }
 }
 
-/** Buffers this dispatch's rows. onEvents feeds [pushDraftsJson], native rows feed
+/** Buffers this dispatch's rows. `events` bridge messages feed [pushDraftsJson], native rows feed
  *  [emitNative], and [build] stamps them at the end. Thread-safe. */
 internal class TelemetryCollector {
     private val rows = ArrayList<JSONObject>()
