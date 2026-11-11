@@ -1,5 +1,6 @@
 package com.zerohash.sdk.automation
 
+import com.zerohash.sdk.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -233,6 +234,11 @@ class AutomationBridgeLogicTest {
     @Test
     fun balancesToJson_emptyList_isEmptyArray() {
         assertEquals(0, balancesToJson(emptyList()).length())
+    }
+
+    @Test
+    fun buildConfigSdkVersion_isPlainSemver() {
+        assertTrue(Regex("""^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$""").matches(BuildConfig.SDK_VERSION))
     }
 
     @Test

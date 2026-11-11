@@ -36,7 +36,7 @@ import com.zerohash.sdk.CallbackHandler
  */
 internal class WebViewMessageHandler(
     private val webView: WebView,
-    private val jwt: String,
+    jwt: String,
     private val environment: String,
     private val theme: String,
     private val appRedirectUrl: String? = null,
@@ -44,6 +44,8 @@ internal class WebViewMessageHandler(
     /** Trusted host for this session — derived from [Environment.webHost]. */
     private val allowedHost: String = "sdk-cdn.zerohash.com"
 ) {
+    @Volatile private var jwt: String = jwt
+
     companion object {
         private const val TAG = "WebViewMessageHandler"
         const val INTERFACE_NAME = "NativeAndroid"
@@ -253,6 +255,12 @@ internal class WebViewMessageHandler(
             put("env", environment)
         }
         sendMessageToWeb("jwt", jwtMessage)
+    }
+
+    // Stored, not only sent: a later `page-ready` must send the new token.
+    fun updateJwt(newJwt: String) {
+        jwt = newJwt
+        sendJWT()
     }
 
     private fun sendConfig() {

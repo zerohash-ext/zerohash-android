@@ -129,4 +129,96 @@ class SessionRegistryTest {
 
         assertTrue(registry.contains("live"))
     }
+
+    @Test
+    fun `updateJwt reaches the activity that owns the session`() {
+        var received: String? = null
+        registry.register("s1", handler)
+        registry.claim("s1", firstActivity) {}
+        registry.onJwtUpdate("s1", firstActivity) { received = it }
+
+        assertTrue(registry.updateJwt("s1", "new.jwt"))
+        assertEquals("new.jwt", received)
+    }
+
+    @Test
+    fun `updateJwt is false only when the session is gone`() {
+        registry.register("s1", handler)
+
+        assertTrue(registry.updateJwt("s1", "new.jwt"))
+        assertFalse(registry.updateJwt("missing", "new.jwt"))
+    }
+
+    @Test
+    fun `a token sent before any activity is showing reaches the first activity`() {
+        var received: String? = null
+        registry.register("s1", handler)
+
+        registry.updateJwt("s1", "early.jwt")
+        registry.claim("s1", firstActivity) {}
+        registry.onJwtUpdate("s1", firstActivity) { received = it }
+
+        assertEquals("early.jwt", received)
+    }
+
+    @Test
+    fun `a token sent during rotation reaches the recreated activity`() {
+        var firstReceived: String? = null
+        var recreatedReceived: String? = null
+        registry.register("s1", handler)
+        registry.claim("s1", firstActivity) {}
+        registry.onJwtUpdate("s1", firstActivity) { firstReceived = it }
+        registry.detach("s1", firstActivity)
+
+        assertTrue(registry.updateJwt("s1", "mid-rotation.jwt"))
+        registry.claim("s1", recreatedActivity) {}
+        registry.onJwtUpdate("s1", recreatedActivity) { recreatedReceived = it }
+
+        assertNull(firstReceived)
+        assertEquals("mid-rotation.jwt", recreatedReceived)
+    }
+
+    @Test
+    fun `a token that was already delivered is not sent again to a recreated activity`() {
+        var recreatedReceived: String? = null
+        registry.register("s1", handler)
+        registry.claim("s1", firstActivity) {}
+        registry.onJwtUpdate("s1", firstActivity) {}
+        registry.updateJwt("s1", "delivered.jwt")
+        registry.detach("s1", firstActivity)
+        registry.claim("s1", recreatedActivity) {}
+
+        registry.onJwtUpdate("s1", recreatedActivity) { recreatedReceived = it }
+
+        assertNull(recreatedReceived)
+    }
+
+    @Test
+    fun `updateJwt reaches the recreated activity, not the destroyed one`() {
+        var firstReceived: String? = null
+        var recreatedReceived: String? = null
+        registry.register("s1", handler)
+        registry.claim("s1", firstActivity) {}
+        registry.onJwtUpdate("s1", firstActivity) { firstReceived = it }
+        registry.detach("s1", firstActivity)
+        registry.claim("s1", recreatedActivity) {}
+        registry.onJwtUpdate("s1", recreatedActivity) { recreatedReceived = it }
+
+        assertTrue(registry.updateJwt("s1", "new.jwt"))
+        assertNull(firstReceived)
+        assertEquals("new.jwt", recreatedReceived)
+    }
+
+    @Test
+    fun `a destroyed activity cannot register a jwt updater`() {
+        var received: String? = null
+        registry.register("s1", handler)
+        registry.claim("s1", firstActivity) {}
+        registry.claim("s1", recreatedActivity) {}
+
+        registry.onJwtUpdate("s1", firstActivity) { received = it }
+        registry.updateJwt("s1", "new.jwt")
+
+        assertNull(received)
+    }
 }

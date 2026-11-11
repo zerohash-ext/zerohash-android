@@ -88,6 +88,8 @@ class WebViewActivity : AppCompatActivity(),
         internal fun dismissSession(sessionId: String) {
             sessions.dismiss(sessionId)
         }
+
+        internal fun updateJwt(sessionId: String, jwt: String): Boolean = sessions.updateJwt(sessionId, jwt)
     }
 
     private lateinit var webView: WebView
@@ -222,6 +224,16 @@ class WebViewActivity : AppCompatActivity(),
                 allowedHost = webHost
             ).apply {
                 delegate = this@WebViewActivity
+            }
+
+            sessionId?.let { sid ->
+                sessions.onJwtUpdate(sid, owner = this) { newJwt ->
+                    runOnUiThread {
+                        // Keep the extra current: a recreated activity rebuilds its handler from it.
+                        intent.putExtra(EXTRA_JWT, newJwt)
+                        messageHandler.updateJwt(newJwt)
+                    }
+                }
             }
 
             configureWebView()

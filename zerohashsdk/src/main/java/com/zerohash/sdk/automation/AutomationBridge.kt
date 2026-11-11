@@ -188,7 +188,8 @@ internal class AutomationBridge(
             return OpResult(
                 JSONObject()
                     .put("ok", true)
-                    .put("version", VERSION)
+                    .put("sdk", "android")
+                    .put("version", BuildConfig.SDK_VERSION)
                     .put("hideAutomationIntegrations", false),
             )
         }
@@ -409,9 +410,6 @@ internal class AutomationBridge(
         private const val TAG = "ZHAutomation"
         internal const val ROLE_NATIVE = "zeroauth-native"
         private const val RESPONSE_TYPE = "scraping-webview-response"
-
-        // Platform-prefixed SDK version, mirroring iOS "ios-<version>".
-        private val VERSION = "android-${BuildConfig.SDK_VERSION}"
     }
 }
 

@@ -13,6 +13,7 @@ import com.zerohash.sdk.Environment
 import com.zerohash.sdk.Theme
 import com.zerohash.sdk.internal.JwtValidator
 import com.zerohash.sdk.internal.AppRedirect
+import com.zerohash.sdk.internal.updateSessionJwt
 import com.zerohash.sdk.ui.WebViewActivity
 
 /**
@@ -36,7 +37,7 @@ class ZerohashFundSession internal constructor(
         AppRedirect.requireValid(appRedirectUrl)
     }
 
-    private var session: ZerohashSession? = null
+    @Volatile private var session: ZerohashSession? = null
     private var hasPresented = false
 
     companion object {
@@ -125,6 +126,14 @@ class ZerohashFundSession internal constructor(
 
         return newSession
     }
+
+    /**
+     * Gives the running flow a new JWT. Returns false if there is no active session or the JWT
+     * is invalid, which also reaches the host as a [ZerohashError.ConfigurationError]. True means
+     * the token was accepted: it reaches the page once the flow's screen is showing.
+     */
+    fun updateJwt(newJwt: String): Boolean =
+        updateSessionJwt(session, newJwt, TAG, callbacks::onError)
 
     fun cancel() {
         session?.let { WebViewActivity.dismissSession(it.id) }

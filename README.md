@@ -30,7 +30,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.zerohash:zerohash-android:1.5.0")
+    implementation("com.zerohash:zerohash-android:1.7.0")
 }
 ```
 
@@ -349,6 +349,7 @@ otherwise — arrives on `onError`.
 | `present(activity: Activity): ZerohashSession?` | Launches the flow's WebView activity; returns `null` if the JWT fails validation                                      |
 | `cancel()`                                      | Closes the session if it is active                                                                                    |
 | `isActive(): Boolean`                           | Whether the session is currently active                                                                               |
+| `updateJwt(newJwt: String): Boolean`            | Gives the running flow a new JWT without relaunching it. Returns `false`, and changes nothing, if there is no active session or the JWT is invalid (the host also gets a `ZerohashError.ConfigurationError`). `true` means the token was accepted: it reaches the page once the flow's screen is showing (for example when sent right after `present`, or during rotation). The screen follows the new token's claims at once; requests already in flight keep the old token |
 | `allowList: ZerohashAllowList`                  | Optional `configure*` param — hosts the WebView may navigate to / load from (defaults to `ZerohashAllowList.DEFAULT`) |
 | `appRedirectUrl: String?`                    | Optional `configure*` param — link that brings the user back to your app from another app, such as a wallet. See [App redirect URL](#app-redirect-url) |
 
@@ -398,6 +399,14 @@ Each flow renders the zerohash mobile web app inside a hardened `WebView` and
 communicates with it over a JavaScript↔Kotlin bridge. External-source OAuth
 (where a flow needs to authenticate against a third-party provider) is handed
 off to Chrome Custom Tabs rather than run inside the SDK's WebView.
+
+## Versioning
+
+The SDK reports its version (`BuildConfig.SDK_VERSION`) to zerohash. Some integrations are available only from a minimum SDK version.
+
+- Release builds (JitPack and Maven Central) take the version from the git tag through `-PSDK_VERSION`.
+- A build without `-PSDK_VERSION` uses the last release tag that `HEAD` can reach (`git describe`). It uses `0.0.0-SNAPSHOT` only when git has no release tag, for example in a shallow clone.
+- A JitPack build of a commit or of a branch (for example `main-SNAPSHOT`) does not report a release version. The integrations that need a minimum version are not available for that build.
 
 ## License
 

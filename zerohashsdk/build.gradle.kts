@@ -6,6 +6,23 @@ plugins {
     id("com.vanniktech.maven.publish") version "0.30.0" apply false
 }
 
+fun readBuildConfigSdkVersion(): String {
+    val sdkVersionProperty = findProperty("SDK_VERSION") as? String
+    if (sdkVersionProperty != null) {
+        return sdkVersionProperty
+    }
+    val lastReleaseTag = runCatching {
+        providers.exec {
+            commandLine("git", "describe", "--tags", "--abbrev=0", "--match", "[0-9]*.[0-9]*.[0-9]*")
+            isIgnoreExitValue = true
+        }.standardOutput.asText.get().trim()
+    }.getOrDefault("")
+    if (lastReleaseTag.isNotEmpty()) {
+        return lastReleaseTag
+    }
+    return "0.0.0-SNAPSHOT"
+}
+
 android {
     namespace = "com.zerohash.sdk"
     compileSdk = 34
@@ -21,7 +38,7 @@ android {
         buildConfigField(
             "String",
             "SDK_VERSION",
-            "\"${(findProperty("SDK_VERSION") as? String) ?: "0.0.0-SNAPSHOT"}\"",
+            "\"${readBuildConfigSdkVersion()}\"",
         )
     }
 
