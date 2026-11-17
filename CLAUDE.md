@@ -47,14 +47,17 @@ SDK's `prod`/`cert` and renders the Fund web component + iframe.
   `crypto-withdrawal` (Crypto Withdrawals completion), `fund-withdrawal`
   (Fund Withdrawals completion — `FundWithdrawalsCompletedData`).
 - **native → web** (`window.postMessage`): `jwt` (`{token, env}`), `config`
-  (`{theme}`).
+  (`{theme, appRedirectUrl?, oauthCallbackUri}`).
 
 ### OAuth
 
 Fund embeds the shared integrations-flow ("auth as a feature") external-source
 deposit flow, which uses OAuth via **Chrome Custom Tabs** (not the WebView). The
-provider redirects back via `connectsdk-oauth://callback` — a scheme dictated by
-the backend (connection-service). `OAuthCallbackActivity` is the only exported
+provider redirects back via `connectsdk-oauth://<applicationId>`: the manifest
+declares that host with the `${applicationId}` placeholder, and the SDK sends the
+URI to the web layer in `config.oauthCallbackUri`, which passes it to the backend
+(connection-service). The per-app host stops an app chooser when several apps
+embed the SDK. `OAuthCallbackActivity` is the only exported
 activity; it forwards the callback to the non-exported `WebViewActivity`.
 
 **Exception — Coinbase automation login (Apple):** The scraping login WebView

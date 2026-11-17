@@ -65,12 +65,15 @@ class FundGatingE2ETest {
 
         h.acceptTermsIfPresent()
 
-        // Non-Auth -> gate stays off; the native Fund flow must render.
-        val selectAsset = h.waitForText(FundSessionHarness.SELECT_ASSET_TITLE)
+        // Non-Auth -> gate stays off; the native Fund flow must render: the unified deposit
+        // screen, or the legacy asset list in Pay mode.
+        val nativeFlow = h.waitForText(FundSessionHarness.UNIFIED_DEPOSIT_TITLE)
+            ?: h.waitForText(FundSessionHarness.SELECT_ASSET_TITLE, 10_000)
         assertTrue(
-            "Expected '${FundSessionHarness.SELECT_ASSET_TITLE}' to render for a " +
+            "Expected '${FundSessionHarness.UNIFIED_DEPOSIT_TITLE}' or " +
+                "'${FundSessionHarness.SELECT_ASSET_TITLE}' to render for a " +
                 "non-Auth JWT (ENG-6631 guard). Errors so far: ${h.callbacks.errors}",
-            selectAsset != null,
+            nativeFlow != null,
         )
 
         // ENG-6631 symptom was a terminal auth error on boot — assert none.

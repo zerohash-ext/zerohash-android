@@ -110,5 +110,7 @@ class FundSessionHarness(private val jwt: String) {
         const val INTEGRATIONS_PICKER_TITLE = "Select source"
         const val DEPOSIT_MANUALLY_TEXT = "Deposit manually"
         const val SELECT_ASSET_TITLE = "Select asset"
+        // The unified deposit screen ("Deposit to {platform}") the Fund flow boots into outside Pay.
+        const val UNIFIED_DEPOSIT_TITLE = "Deposit to"
     }
 }

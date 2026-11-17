@@ -27,6 +27,10 @@ android {
     namespace = "com.zerohash.sdk"
     compileSdk = 34
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     defaultConfig {
         minSdk = 21
         targetSdk = 34
@@ -85,6 +89,7 @@ dependencies {
     // JSON parsing handled by org.json (bundled with Android).
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("org.json:json:20231013")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")

@@ -13,6 +13,9 @@ class WalletSchemeStoreTest {
           "spaced": {"mobile": {"native": " payperless://"}},
           "upper": {"mobile": {"native": "MyWallet://wc"}},
           "dotted": {"mobile": {"native": "app.dosivault://"}},
+          "dapp": {"mobile": {"inAppBrowser": "tpdapp://open?params="}},
+          "dappv2": {"mobile": {"inAppBrowserV2": "rainbow://dapp?url=", "native": "https://rnbwapp.com/wc"}},
+          "httpsdapp": {"mobile": {"inAppBrowser": "https://phantom.app/ul/browse/"}},
           "evil": {"mobile": {"native": "javascript:alert(1)"}},
           "phone": {"mobile": {"native": "tel:+1"}},
           "https": {"mobile": {"native": "https://example.com"}},
@@ -22,8 +25,11 @@ class WalletSchemeStoreTest {
     """.trimIndent()
 
     @Test
-    fun parseExtractsNormalizedNativeSchemes() {
-        assertEquals(setOf("okxwallet", "bnc", "payperless", "mywallet", "app.dosivault"), WalletSchemeStore.parse(walletBook))
+    fun parseExtractsNormalizedMobileSchemes() {
+        assertEquals(
+            setOf("okxwallet", "bnc", "payperless", "mywallet", "app.dosivault", "tpdapp", "rainbow"),
+            WalletSchemeStore.parse(walletBook),
+        )
     }
 
     @Test

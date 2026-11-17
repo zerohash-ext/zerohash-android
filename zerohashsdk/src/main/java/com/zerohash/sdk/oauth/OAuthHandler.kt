@@ -25,7 +25,8 @@ import com.zerohash.sdk.BuildConfig
  * which holds the `client_secret`. The Android SDK never sees the raw
  * authorization code; connection-service validates the OAuth callback, performs
  * the token exchange, and then redirects to the web app's oauth-callback page
- * which in turn fires `connectsdk-oauth://callback?connectionId=<uuid>`.
+ * which in turn fires `connectsdk-oauth://<applicationId>?connectionId=<uuid>`
+ * (see [OAuthCallbackUri]).
  *
  * The callback only delivers a `connectionId` (not an authorization code or
  * tokens), so custom-scheme hijacking is harmless: a malicious app that
@@ -36,12 +37,12 @@ import com.zerohash.sdk.BuildConfig
  * OAuth URLs and connection IDs are only logged in debug builds.
  */
 class OAuthHandler(
-    private val activity: Activity
+    private val activity: Activity,
+    /** The app-scoped callback URI the config message sends (see [OAuthCallbackUri]). */
+    private val callbackUri: String
 ) {
     companion object {
         private const val TAG = "OAuthHandler"
-        private const val OAUTH_CALLBACK_SCHEME = "connectsdk-oauth"
-        private const val OAUTH_CALLBACK_HOST = "callback"
         const val REQUEST_CODE_OAUTH = 1001
 
         // RFC 4122 UUID — 8-4-4-4-12 hex chars
@@ -136,7 +137,7 @@ class OAuthHandler(
         val data = intent?.data ?: return false
         val callback = currentCallback ?: return false
 
-        if (data.scheme != OAUTH_CALLBACK_SCHEME || data.host != OAUTH_CALLBACK_HOST) {
+        if (!OAuthCallbackUri.matches(data.scheme, data.host, callbackUri)) {
             return false
         }
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Regenerates zerohashsdk/src/main/java/com/zerohash/sdk/ui/WalletSchemes.generated.kt from
-// Dynamic's wallet book: the custom URL scheme of every wallet's mobile deep link.
+// Dynamic's wallet book: the custom URL scheme of every wallet's mobile deep link
+// (WalletConnect and in-app browser links).
 //
 //   node scripts/generate-wallet-schemes.mjs              fetch the wallet book
 //   node scripts/generate-wallet-schemes.mjs --from f.json  use a local copy
@@ -26,10 +27,11 @@ const book = JSON.parse(source);
 
 const schemes = new Set();
 for (const wallet of Object.values(book.wallets ?? {})) {
-  const native = wallet?.mobile?.native;
-  if (typeof native !== 'string') continue;
-  const scheme = native.trim().split(':', 1)[0].toLowerCase();
-  if (SCHEME.test(scheme) && !RESERVED.has(scheme)) schemes.add(scheme);
+  for (const link of [wallet?.mobile?.native, wallet?.mobile?.inAppBrowser, wallet?.mobile?.inAppBrowserV2]) {
+    if (typeof link !== 'string') continue;
+    const scheme = link.trim().split(':', 1)[0].toLowerCase();
+    if (SCHEME.test(scheme) && !RESERVED.has(scheme)) schemes.add(scheme);
+  }
 }
 
 const sorted = [...schemes].sort();

@@ -78,10 +78,9 @@ enum class Environment {
      * hosts). Its `#fund` route internally embeds the Fund web component + iframe.
      *
      * NOTE: on mobile, external-source OAuth returns through the native bridge
-     * (Custom Tabs -> connectsdk-oauth://callback), NOT the web popup path — so
-     * that web origin allowlist does not gate this host. The real OAuth dependency is that the
-     * connection-service redirect URI (`connectsdk-oauth://callback`) is
-     * configured for the Fund SDK (backend), independent of the web host.
+     * (Custom Tabs -> connectsdk-oauth://<applicationId>), NOT the web popup path — so
+     * that web origin allowlist does not gate this host. The real OAuth dependency is that
+     * connection-service returns that callback URI, independent of the web host.
      */
     internal val webHost: String
         get() = when (this) {

@@ -34,7 +34,7 @@ Each test uses a dedicated gating platform provisioned for that configuration
 | Test                                                    | Platform / participant | Provisioning                                                                          | Expectation                                                                                                              |
 | ------------------------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `authEnabledJwt_rendersIntegrationsSourcePicker`        | `BM3LDA` / `62LHRQ`    | `fwc` + `crypto-deposits` + `auth_policy_enabled`; integrations cbase/gemini/robinhood/gemini-fake | Integrations source picker (or its "Deposit manually" escape hatch) renders; no SDK errors                               |
-| `nonAuthJwt_bootsStraightToNativeFundFlow_eng6631Guard` | `HSBCRW` / `JLXERM`    | `fwc` only (no auth policy)                                                             | Native Fund flow ("Select asset") renders; **no** picker, no errors — guards the ENG-6631 regression at the native layer |
+| `nonAuthJwt_bootsStraightToNativeFundFlow_eng6631Guard` | `HSBCRW` / `JLXERM`    | `fwc` only (no auth policy)                                                             | Native Fund flow renders (the unified deposit screen, "Deposit to …", or "Select asset" in Pay mode); **no** picker, no errors — guards the ENG-6631 regression at the native layer |
 
 ## Why UI Automator (not Espresso-Web)
 

@@ -30,7 +30,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.zerohash:zerohash-android:1.7.0")
+    implementation("com.zerohash:zerohash-android:1.8.0")
 }
 ```
 
@@ -391,6 +391,7 @@ Declare the link on the SDK's `AppRedirectActivity` in your `AndroidManifest.xml
 - Use an App Link (`https://`, add `android:autoVerify="true"` and your host) or a custom URL scheme (`yourapp://`).
 - `AppRedirectActivity` shows nothing. It brings the SDK back to the front and finishes, so the user continues the flow where they left it.
 - Do not handle the link in one of your own activities. A `singleTask` activity, for example, clears the activities above it and closes the SDK.
+- When a wallet deposit runs in the wallet's in-app browser, the zerohash page opens this link with `zh_wallet_return=sent&zh_tx=<transaction id>` in its query once the wallet broadcast the transfer. `AppRedirectActivity` hands that to the SDK, which then shows the processing screen right away instead of waiting for the deposit to be detected. Nothing to do on your side.
 - The URL must be absolute. If it has no scheme, `configure*` throws `IllegalArgumentException`.
 
 ## Architecture

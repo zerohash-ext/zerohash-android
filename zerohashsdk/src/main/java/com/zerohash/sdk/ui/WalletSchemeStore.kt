@@ -67,8 +67,10 @@ internal object WalletSchemeStore {
             .apply()
     }
 
+    private val MOBILE_LINK_KEYS = listOf("native", "inAppBrowser", "inAppBrowserV2")
+
     /**
-     * Extracts the scheme of every `mobile.native` deep link in a wallet book.
+     * Extracts the scheme of every mobile deep link (WalletConnect and in-app browser) in a wallet book.
      * Same rules as scripts/generate-wallet-schemes.mjs.
      */
     fun parse(body: String): Set<String> {
@@ -79,8 +81,8 @@ internal object WalletSchemeStore {
         }
         val result = mutableSetOf<String>()
         for (key in wallets.keys()) {
-            val native = wallets.optJSONObject(key)?.optJSONObject("mobile")?.optString("native").orEmpty()
-            schemeOf(native)?.let(result::add)
+            val mobile = wallets.optJSONObject(key)?.optJSONObject("mobile") ?: continue
+            for (link in MOBILE_LINK_KEYS) schemeOf(mobile.optString(link).orEmpty())?.let(result::add)
         }
         return result
     }

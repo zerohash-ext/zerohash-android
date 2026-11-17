@@ -1,6 +1,8 @@
 package com.zerohash.sdk.ui
 
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Build
@@ -19,6 +21,7 @@ import androidx.webkit.WebViewFeature
 import com.zerohash.sdk.BuildConfig
 import com.zerohash.sdk.CallbackHandler
 import com.zerohash.sdk.ZerohashAllowList
+import com.zerohash.sdk.oauth.OAuthCallbackUri
 import com.zerohash.sdk.oauth.OAuthHandler
 import com.zerohash.sdk.internal.Constants
 import com.zerohash.sdk.internal.padForSystemBarsAndKeyboard
@@ -33,7 +36,8 @@ import org.json.JSONObject
  */
 class WebViewActivity : AppCompatActivity(),
     WebViewMessageHandler.Delegate,
-    WebViewOAuthManager.Delegate {
+    WebViewOAuthManager.Delegate,
+    AppRedirectTarget {
 
     companion object {
         private const val TAG = "WebViewActivity"
@@ -51,6 +55,18 @@ class WebViewActivity : AppCompatActivity(),
 
         /** Allow-listed hosts for navigation and resource filtering. */
         const val EXTRA_ALLOW_HOSTS = "extra_allow_hosts"
+
+        /**
+         * Intent that delivers a redirect URI to the running activity. It is `singleTop`,
+         * so the URI arrives in `onNewIntent` instead of starting a second instance.
+         */
+        internal fun forwardIntent(context: Context, data: Uri): Intent =
+            Intent(context, WebViewActivity::class.java).apply {
+                action = Intent.ACTION_VIEW
+                this.data = data
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
 
         // A registered handler no activity ever claims (activity-start failed
         // silently, process killed before onCreate) is evicted after this.
@@ -203,7 +219,8 @@ class WebViewActivity : AppCompatActivity(),
             configureStatusBar()
             container.padForSystemBarsAndKeyboard(TAG)
 
-            oauthHandler = OAuthHandler(this)
+            val oauthCallbackUri = OAuthCallbackUri.buildForApp(this)
+            oauthHandler = OAuthHandler(this, oauthCallbackUri)
 
             webView = WebView(this).apply {
                 layoutParams = FrameLayout.LayoutParams(
@@ -220,11 +237,13 @@ class WebViewActivity : AppCompatActivity(),
                 environment = environment,
                 theme = theme,
                 appRedirectUrl = appRedirectUrl,
+                oauthCallbackUri = oauthCallbackUri,
                 callbackHandler = callbackHandler!!,
                 allowedHost = webHost
             ).apply {
                 delegate = this@WebViewActivity
             }
+            AppRedirectTargets.register(this)
 
             sessionId?.let { sid ->
                 sessions.onJwtUpdate(sid, owner = this) { newJwt ->
@@ -466,6 +485,14 @@ class WebViewActivity : AppCompatActivity(),
         }
     }
 
+    override val hostTaskId: Int
+        get() = taskId
+
+    override fun handleAppRedirect(data: Uri) {
+        if (!::messageHandler.isInitialized) return
+        if (messageHandler.handleWalletReturn(data.toString()) && BuildConfig.DEBUG) Log.d(TAG, "Wallet return handled")
+    }
+
     override fun onPause() {
         super.onPause()
         // Stop the WebView's animations/rendering while backgrounded (e.g. during
@@ -499,6 +526,7 @@ class WebViewActivity : AppCompatActivity(),
 
     override fun onDestroy() {
         super.onDestroy()
+        AppRedirectTargets.unregister(this)
         try {
             automationBridge?.dispose()
             if (::oauthHandler.isInitialized) {

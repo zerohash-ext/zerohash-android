@@ -6,9 +6,11 @@ import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import com.zerohash.sdk.BuildConfig
+import com.zerohash.sdk.oauth.OAuthCallbackUri
 
 /**
- * Receiver for the `connectsdk-oauth://callback` redirect from Chrome Custom Tabs.
+ * Receiver for the `connectsdk-oauth://<applicationId>` redirect from Chrome Custom Tabs
+ * (see [OAuthCallbackUri]).
  *
  * This is the **only** activity in the SDK that is `android:exported="true"`.
  * Its sole responsibility is to receive the OAuth redirect (dispatched
@@ -17,15 +19,13 @@ import com.zerohash.sdk.BuildConfig
  * non-exported. The activity uses a translucent theme and finishes immediately
  * — the user never sees it.
  *
- * See the OAuth-scheme note in AndroidManifest.xml: the scheme is dictated by
- * the backend (connection-service) redirect URI and must stay in sync with it.
+ * The SDK picks the callback URI and the backend only passes it along; see
+ * the OAuth-callback note in AndroidManifest.xml.
  */
 class OAuthCallbackActivity : Activity() {
 
     companion object {
         private const val TAG = "OAuthCallbackActivity"
-        private const val OAUTH_CALLBACK_SCHEME = "connectsdk-oauth"
-        private const val OAUTH_CALLBACK_HOST = "callback"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,21 +41,13 @@ class OAuthCallbackActivity : Activity() {
     private fun forward(incoming: Intent?) {
         try {
             val data: Uri? = incoming?.data
-            if (data == null ||
-                data.scheme != OAUTH_CALLBACK_SCHEME ||
-                data.host != OAUTH_CALLBACK_HOST
-            ) {
+            val callbackUri = OAuthCallbackUri.buildForApp(this)
+            if (data == null || !OAuthCallbackUri.matches(data.scheme, data.host, callbackUri)) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Ignoring intent: not an OAuth callback")
                 return
             }
 
-            val forward = Intent(this, WebViewActivity::class.java).apply {
-                action = Intent.ACTION_VIEW
-                this.data = data
-                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            }
-            startActivity(forward)
+            startActivity(WebViewActivity.forwardIntent(this, data))
         } catch (e: Exception) {
             Log.e(TAG, "Failed to forward OAuth callback", e)
         } finally {

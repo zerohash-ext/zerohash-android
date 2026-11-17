@@ -8,14 +8,15 @@ import java.net.URISyntaxException
  * app, such as a wallet after a WalletConnect approval.
  */
 internal object AppRedirect {
-    /** Another app can only open an absolute URL: an App Link or a custom scheme. */
-    fun isValid(url: String): Boolean {
-        return try {
-            !URI(url).scheme.isNullOrEmpty()
-        } catch (e: URISyntaxException) {
-            false
-        }
+    /** The URL as a [URI] when it is absolute (an App Link or a custom scheme), else null. */
+    fun parse(url: String): URI? = try {
+        URI(url).takeIf { !it.scheme.isNullOrEmpty() }
+    } catch (e: URISyntaxException) {
+        null
     }
+
+    /** Another app can only open an absolute URL: an App Link or a custom scheme. */
+    fun isValid(url: String): Boolean = parse(url) != null
 
     /** @throws IllegalArgumentException when [url] is set but not an absolute URL. */
     fun requireValid(url: String?) {

@@ -2,6 +2,7 @@ package com.zerohash.sdk.ui
 
 import android.app.Activity
 import android.app.ActivityManager
+import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -14,9 +15,11 @@ import android.util.Log
  *
  * A host activity can drop the SDK: a `singleTask` launcher (the Capacitor
  * default) clears every activity above it, which destroys [WebViewActivity].
- * This activity holds no state. It brings the task that holds [WebViewActivity]
- * to the front when that task is not its own (for example with
- * `taskAffinity=""`), and then finishes.
+ * This activity holds no state. While the SDK is alive it hands the link to the
+ * running flow (the deposit page appends the wallet's result to it) and brings
+ * the SDK's task to the front if the link landed in another one. When the
+ * process was killed meanwhile, it only brings the SDK's task back. Then it
+ * finishes.
  */
 class AppRedirectActivity : Activity() {
 
@@ -27,7 +30,13 @@ class AppRedirectActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
-            bringSdkTaskToFront()
+            val target = AppRedirectTargets.active
+            if (target != null) {
+                if (target.hostTaskId != taskId) bringToFront { idOf(it) == target.hostTaskId }
+                intent?.data?.let(target::handleAppRedirect)
+            } else {
+                bringToFront { Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && it.topActivity?.className == WebViewActivity::class.java.name }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to handle the app redirect", e)
         } finally {
@@ -35,14 +44,12 @@ class AppRedirectActivity : Activity() {
         }
     }
 
-    private fun bringSdkTaskToFront() {
-        // RecentTaskInfo.topActivity needs API 23. Below that, finishing still
-        // works when this activity opened in the SDK's own task (the default).
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-
-        val activityManager = getSystemService(ActivityManager::class.java) ?: return
-        activityManager.appTasks
-            .firstOrNull { it.taskInfo.topActivity?.className == WebViewActivity::class.java.name }
-            ?.moveToFront()
+    private fun bringToFront(matches: (ActivityManager.RecentTaskInfo) -> Boolean) {
+        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return
+        activityManager.appTasks.firstOrNull { matches(it.taskInfo) }?.moveToFront()
     }
+
+    @Suppress("DEPRECATION")
+    private fun idOf(info: ActivityManager.RecentTaskInfo): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) info.taskId else info.id
 }

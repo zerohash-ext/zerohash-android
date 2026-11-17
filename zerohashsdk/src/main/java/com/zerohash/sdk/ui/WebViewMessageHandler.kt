@@ -2,9 +2,11 @@ package com.zerohash.sdk.ui
 
 import android.util.Log
 import android.webkit.WebView
+import com.zerohash.sdk.internal.WalletReturn
 import org.json.JSONObject
 import com.zerohash.sdk.BuildConfig
 import com.zerohash.sdk.CallbackHandler
+import com.zerohash.sdk.oauth.OAuthCallbackUri
 
 /**
  * JavaScript↔Kotlin communication bridge.
@@ -40,6 +42,8 @@ internal class WebViewMessageHandler(
     private val environment: String,
     private val theme: String,
     private val appRedirectUrl: String? = null,
+    /** The app-scoped OAuth callback URI (see [OAuthCallbackUri]). */
+    private val oauthCallbackUri: String,
     private val callbackHandler: CallbackHandler,
     /** Trusted host for this session — derived from [Environment.webHost]. */
     private val allowedHost: String = "sdk-cdn.zerohash.com"
@@ -58,6 +62,17 @@ internal class WebViewMessageHandler(
          * environment. Prefer [WebViewMessageHandler.targetOrigin] at runtime.
          */
         const val TARGET_ORIGIN = "https://sdk-cdn.zerohash.com"
+
+        /** The outbound `config` message body. */
+        internal fun configMessage(
+            theme: String,
+            appRedirectUrl: String?,
+            oauthCallbackUri: String
+        ): JSONObject = JSONObject().apply {
+            put("theme", theme)
+            appRedirectUrl?.let { put("appRedirectUrl", it) }
+            put("oauthCallbackUri", oauthCallbackUri)
+        }
     }
 
     /**
@@ -138,7 +153,7 @@ internal class WebViewMessageHandler(
 
     private fun handlePageReady() {
         // Config first: the web layer mounts the SDK on the JWT, and reads
-        // appRedirectUrl only once, at mount.
+        // appRedirectUrl and oauthCallbackUri only once, at mount.
         sendConfig()
         sendJWT()
     }
@@ -264,11 +279,7 @@ internal class WebViewMessageHandler(
     }
 
     private fun sendConfig() {
-        val configMessage = JSONObject().apply {
-            put("theme", theme)
-            appRedirectUrl?.let { put("appRedirectUrl", it) }
-        }
-        sendMessageToWeb("config", configMessage)
+        sendMessageToWeb("config", configMessage(theme, appRedirectUrl, oauthCallbackUri))
     }
 
     fun sendOAuthSuccess(connectionId: String?) {
@@ -280,6 +291,18 @@ internal class WebViewMessageHandler(
         // `oauth-success` / `oauth-error` (matches connect-ios). The host relays
         // this into the iframe, where `data.connectionId` resolves the flow.
         sendMessageToWeb("oauth-success", oauthMessage)
+    }
+
+    /**
+     * [AppRedirectActivity] hands the host's `appRedirectUrl` here when another app reopened
+     * it. When the deposit page did so after a wallet broadcast, the URL carries the
+     * transaction id; only a URL matching the configured redirect with a well-formed id
+     * is passed on to the web SDK, which only picks its waiting screen from it.
+     */
+    fun handleWalletReturn(url: String?): Boolean {
+        val txId = WalletReturn.transactionId(url, appRedirectUrl) ?: return false
+        sendMessageToWeb("wallet-return", JSONObject().apply { put("txId", txId) })
+        return true
     }
 
     fun sendOAuthError(error: String) {
